@@ -1,11 +1,22 @@
 "use server";
 
+import { validarTransicionEstadoOrden } from "@/features/ordenes/domain/orden.service";
+import { construirTotalesOrdenDesdePayload } from "@/features/ordenes/domain/orden-payload";
+import {
+  procesarSalidaStockPorOrden,
+  procesarEntradaStockPorCancelacion,
+} from "@/features/ordenes/domain/orden-stock.service";
+import { puedeEliminarOrdenCancelada } from "@/lib/core/ordenes/estados";
+
+
 import { createClient } from "@/lib/supabase/server";
 import { getTareasSugeridasPorServicio } from "./constants";
 import { calcularPuntosOrden } from "@/features/clientes/fidelizacion-utils";
 import { registrarPuntosCliente } from "@/features/clientes/fidelizacion-actions";
 import { canjearPuntosCliente } from "@/features/clientes/fidelizacion-actions";
 import { calcularDescuentoPorPuntos } from "@/features/clientes/fidelizacion-reglas";
+
+import { registrarAuditoriaLog } from "@/lib/core/auditoria/logs";
 
 
 import type {
@@ -1272,45 +1283,19 @@ export async function createOrden(payload: OrdenFormData) {
     throw new Error("Debes agregar al menos un item.");
   }
 
-  const parsedItems = payload.items.map((item: OrdenFormData["items"][number]) => {
-    const cantidad = Number(item.cantidad);
-    const precioUnitario = Number(item.precio_unitario);
-    const total = cantidad * precioUnitario;
-
-    return {
-      tipo_item: item.tipo_item,
-      servicio_id:
-        item.tipo_item === "servicio" ? item.servicio_id || null : null,
-      producto_id:
-        item.tipo_item === "producto" ? item.producto_id || null : null,
-      nombre_item: item.nombre_item,
-      cantidad,
-      precio_unitario: precioUnitario,
-      total,
-    };
+  const {
+    itemsConTotal,
+    totales,
+    descuentoManual,
+    descuentoPuntos,
+    puntosCanjear,
+  } = construirTotalesOrdenDesdePayload({
+    payload,
+    calcularDescuentoPorPuntos,
   });
 
-  const subtotal = parsedItems.reduce((acc, item) => acc + item.total, 0);
-
-  const descuentoManual = payload.descuento.trim()
-    ? Number(payload.descuento)
-    : 0;
-
-  const puntosCanjear = payload.puntos_canjear?.trim()
-    ? Number(payload.puntos_canjear)
-    : 0;
-
-  const descuentoPuntos =
-    payload.descuento_puntos?.trim()
-      ? Number(payload.descuento_puntos)
-      : calcularDescuentoPorPuntos(puntosCanjear);
-
-  const descuentoTotal = descuentoManual + descuentoPuntos;
-  const total = subtotal - descuentoTotal;
-
-  if (total < 0) {
-    throw new Error("El total no puede ser menor que 0");
-  }
+  const subtotal = totales.subtotal;
+  const total = totales.total;
 
   const numero = generateOrderNumber();
 
@@ -1351,7 +1336,7 @@ export async function createOrden(payload: OrdenFormData) {
     tecnicosIds: payload.tecnicos_ids ?? [],
   });
 
-  const itemsToInsert = parsedItems.map((item) => ({
+  const itemsToInsert = itemsConTotal.map((item) => ({
     orden_id: orden.id,
     ...item,
   }));
@@ -1372,81 +1357,11 @@ export async function createOrden(payload: OrdenFormData) {
       ordenId: orden.id,
     });
   }
-
-  const productosItems = parsedItems.filter(
-    (item) => item.tipo_item === "producto" && item.producto_id
-  );
-
-  if (productosItems.length > 0) {
-    const productoIds = productosItems.map((i) => i.producto_id);
-
-    const { data: productosDB, error: productosError } = await supabase
-      .from("productos")
-      .select("id, stock, precio_compra, nombre")
-      .in("id", productoIds);
-
-    if (productosError || !productosDB) {
-      throw new Error("No se pudieron obtener los productos");
-    }
-
-    const productosMap = new Map(productosDB.map((p) => [p.id, p]));
-
-    const movimientos: Array<{
-      producto_id: string;
-      tipo: "salida";
-      motivo: string;
-      cantidad: number;
-      costo_unitario: number;
-      precio_unitario: number;
-      total: number;
-      referencia_tipo: "orden";
-      referencia_id: string;
-    }> = [];
-
-    for (const item of productosItems) {
-      const producto = productosMap.get(item.producto_id!);
-
-      if (!producto) {
-        throw new Error(`Producto no encontrado: ${item.nombre_item}`);
-      }
-
-      const cantidad = Number(item.cantidad);
-      const nuevoStock = Number(producto.stock) - cantidad;
-
-      if (nuevoStock < 0) {
-        throw new Error(`Stock insuficiente para ${producto.nombre}`);
-      }
-
-      const { error: updateProductoError } = await supabase
-        .from("productos")
-        .update({ stock: nuevoStock })
-        .eq("id", producto.id);
-
-      if (updateProductoError) {
-        throw new Error(`No se pudo actualizar el stock de ${producto.nombre}`);
-      }
-
-      movimientos.push({
-        producto_id: producto.id,
-        tipo: "salida",
-        motivo: "Venta en orden",
-        cantidad,
-        costo_unitario: Number(producto.precio_compra),
-        precio_unitario: Number(item.precio_unitario),
-        total: cantidad * Number(item.precio_unitario),
-        referencia_tipo: "orden",
-        referencia_id: orden.id,
-      });
-    }
-
-    const { error: movimientosError } = await supabase
-      .from("producto_movimientos")
-      .insert(movimientos);
-
-    if (movimientosError) {
-      throw new Error("Error registrando movimientos");
-    }
-  }
+  await procesarSalidaStockPorOrden({
+    supabase,
+    ordenId: orden.id,
+    items: itemsConTotal,
+  });
   const recordatoriosAInsertar = [];
 
   if (payload.proximo_mantenimiento_fecha.trim()) {
@@ -1462,7 +1377,17 @@ export async function createOrden(payload: OrdenFormData) {
       estado: "pendiente",
     });
   }
-
+  await registrarAuditoriaLog({
+    supabase,
+    entidad: "orden",
+    entidad_id: orden.id,
+    accion: "crear",
+    descripcion: `Orden creada ${orden.numero}`,
+    datos_despues: {
+      total,
+      cliente_id: payload.cliente_id,
+    },
+  });
   if (payload.proximo_mantenimiento_km.trim()) {
     recordatoriosAInsertar.push({
       cliente_id: payload.cliente_id,
@@ -1483,7 +1408,10 @@ export async function createOrden(payload: OrdenFormData) {
       .insert(recordatoriosAInsertar);
 
     if (recordatoriosError) {
-      console.error("No se pudieron crear los recordatorios:", recordatoriosError.message);
+      console.error(
+        "No se pudieron crear los recordatorios:",
+        recordatoriosError.message
+      );
     }
   }
 
@@ -1500,45 +1428,19 @@ export async function createPreOrdenTecnico(payload: OrdenFormData) {
     throw new Error("Debes agregar al menos un item.");
   }
 
-  const parsedItems = payload.items.map((item: OrdenFormData["items"][number]) => {
-    const cantidad = Number(item.cantidad);
-    const precioUnitario = Number(item.precio_unitario);
-    const total = cantidad * precioUnitario;
-
-    return {
-      tipo_item: item.tipo_item,
-      servicio_id:
-        item.tipo_item === "servicio" ? item.servicio_id || null : null,
-      producto_id:
-        item.tipo_item === "producto" ? item.producto_id || null : null,
-      nombre_item: item.nombre_item,
-      cantidad,
-      precio_unitario: precioUnitario,
-      total,
-    };
+  const {
+    itemsConTotal,
+    totales,
+    descuentoManual,
+    descuentoPuntos,
+    puntosCanjear,
+  } = construirTotalesOrdenDesdePayload({
+    payload,
+    calcularDescuentoPorPuntos,
   });
 
-  const subtotal = parsedItems.reduce((acc, item) => acc + item.total, 0);
-
-  const descuentoManual = payload.descuento.trim()
-    ? Number(payload.descuento)
-    : 0;
-
-  const puntosCanjear = payload.puntos_canjear?.trim()
-    ? Number(payload.puntos_canjear)
-    : 0;
-
-  const descuentoPuntos =
-    payload.descuento_puntos?.trim()
-      ? Number(payload.descuento_puntos)
-      : calcularDescuentoPorPuntos(puntosCanjear);
-
-  const descuentoTotal = descuentoManual + descuentoPuntos;
-  const total = subtotal - descuentoTotal;
-
-  if (total < 0) {
-    throw new Error("El total no puede ser menor que 0");
-  }
+  const subtotal = totales.subtotal;
+  const total = totales.total;
 
   const numero = `PRE-${generateOrderNumber()}`;
 
@@ -1580,7 +1482,7 @@ export async function createPreOrdenTecnico(payload: OrdenFormData) {
     throw new Error(ordenError?.message || "No se pudo crear la pre-orden");
   }
 
-  const itemsToInsert = parsedItems.map((item) => ({
+  const itemsToInsert = itemsConTotal.map((item) => ({
     orden_id: orden.id,
     ...item,
   }));
@@ -1714,21 +1616,9 @@ export async function updateOrdenEstado(
     throw new Error("No autorizado");
   }
 
-  const allowedEstadosByRol: Record<string, OrdenTrabajo["estado"][]> = {
-    admin: ["pendiente", "en_proceso", "completada", "entregada", "cancelada"],
-    recepcion: ["pendiente", "en_proceso", "completada", "entregada", "cancelada"],
-    tecnico: ["en_proceso", "completada"],
-  };
-
-  const allowedEstados = allowedEstadosByRol[perfil.rol] ?? [];
-
-  if (!allowedEstados.includes(estado)) {
-    throw new Error("No autorizado para cambiar a ese estado");
-  }
-
   const { data: ordenAntes, error: ordenAntesError } = await supabase
     .from("ordenes_trabajo")
-    .select("id, cliente_id, vehiculo_id, estado")
+    .select("id, cliente_id, vehiculo_id, estado, hora_inicio, hora_fin")
     .eq("id", ordenId)
     .single();
 
@@ -1740,9 +1630,39 @@ export async function updateOrdenEstado(
     throw new Error("No se pudo validar la orden");
   }
 
+  const validacionTransicion = validarTransicionEstadoOrden({
+    rol: perfil.rol as "admin" | "recepcion" | "tecnico",
+    estadoActual: ordenAntes.estado,
+    nuevoEstado: estado,
+  });
+
+  if (!validacionTransicion.ok) {
+    throw new Error(validacionTransicion.errores.join(" | "));
+  }
+
+  const payloadUpdate: Partial<OrdenTrabajo> = {
+    estado,
+  };
+
+  if (estado === "en_proceso" && !ordenAntes.hora_inicio) {
+    payloadUpdate.hora_inicio = new Date().toISOString();
+  }
+
+  if (estado === "completada") {
+    if (!ordenAntes.hora_inicio) {
+      payloadUpdate.hora_inicio = new Date().toISOString();
+    }
+
+    payloadUpdate.hora_fin = new Date().toISOString();
+  }
+
+  if (estado === "pendiente") {
+    payloadUpdate.hora_fin = null;
+  }
+
   const { data, error } = await supabase
     .from("ordenes_trabajo")
-    .update({ estado })
+    .update(payloadUpdate)
     .eq("id", ordenId)
     .select()
     .single();
@@ -1751,6 +1671,17 @@ export async function updateOrdenEstado(
     console.error("Error al actualizar estado de la orden:", error.message);
     throw new Error("No se pudo actualizar el estado de la orden");
   }
+
+  await registrarAuditoriaLog({
+    supabase,
+    usuario_id: user.id,
+    entidad: "orden",
+    entidad_id: ordenId,
+    accion: "cambio_estado",
+    descripcion: `Cambio de estado de ${ordenAntes.estado} a ${estado}`,
+    datos_antes: { estado: ordenAntes.estado },
+    datos_despues: { estado },
+  });
 
   const debeRegistrarPuntos =
     (estado === "completada" || estado === "entregada") &&
@@ -1802,6 +1733,7 @@ export async function updateOrdenEstado(
 
   return data;
 }
+
 
 type OrdenDetalleRow = {
   id: string;
@@ -2326,29 +2258,21 @@ export async function updateOrden(ordenId: string, payload: OrdenFormData) {
     throw new Error("No se pudo obtener la orden actual");
   }
 
-  const parsedItems = payload.items.map((item) => {
-    const cantidad = Number(item.cantidad);
-    const precioUnitario = Number(item.precio_unitario);
-    const total = cantidad * precioUnitario;
-
-    return {
-      tipo_item: item.tipo_item,
-      servicio_id: item.tipo_item === "servicio" ? item.servicio_id || null : null,
-      producto_id: item.tipo_item === "producto" ? item.producto_id || null : null,
-      nombre_item: item.nombre_item,
-      cantidad,
-      precio_unitario: precioUnitario,
-      total,
-    };
+  const {
+    itemsConTotal,
+    totales,
+    descuentoManual,
+  } = construirTotalesOrdenDesdePayload({
+    payload: {
+      ...payload,
+      puntos_canjear: "",
+      descuento_puntos: "",
+    },
+    calcularDescuentoPorPuntos,
   });
 
-  const subtotal = parsedItems.reduce((acc, item) => acc + item.total, 0);
-  const descuentoManual = payload.descuento.trim() ? Number(payload.descuento) : 0;
-  const total = subtotal - descuentoManual;
-
-  if (total < 0) {
-    throw new Error("El total no puede ser menor que 0");
-  }
+  const subtotal = totales.subtotal;
+  const total = totales.total;
 
   const { error: updateError } = await supabase
     .from("ordenes_trabajo")
@@ -2416,7 +2340,7 @@ export async function updateOrden(ordenId: string, payload: OrdenFormData) {
   const { error: insertItemsError } = await supabase
     .from("orden_items")
     .insert(
-      parsedItems.map((item) => ({
+      itemsConTotal.map((item) => ({
         orden_id: ordenId,
         ...item,
       }))
@@ -2869,9 +2793,17 @@ export async function deleteOrdenCancelada(ordenId: string) {
     throw new Error("No se encontró la orden.");
   }
 
-  if (orden.estado !== "cancelada") {
+  if (!puedeEliminarOrdenCancelada(orden.estado)) {
     throw new Error("Solo se pueden borrar órdenes canceladas.");
   }
+
+  await registrarAuditoriaLog({
+    supabase,
+    entidad: "orden",
+    entidad_id: ordenId,
+    accion: "eliminar",
+    descripcion: "Orden eliminada (cancelada)",
+  });
 
   const { data: items, error: itemsError } = await supabase
     .from("orden_items")
@@ -2879,64 +2811,51 @@ export async function deleteOrdenCancelada(ordenId: string) {
     .eq("orden_id", ordenId);
 
   if (itemsError) {
-    console.error("Error obteniendo items de la orden cancelada:", itemsError.message);
+    console.error(
+      "Error obteniendo items de la orden cancelada:",
+      itemsError.message
+    );
     throw new Error("No se pudieron obtener los items.");
   }
 
-  const productosItems = (items ?? []).filter((item) => item.producto_id);
+  await procesarEntradaStockPorCancelacion({
+    supabase,
+    ordenId,
+    items: (items ?? []).map((item) => ({
+      tipo_item: item.producto_id ? "producto" : "servicio",
+      producto_id: item.producto_id,
+      cantidad: item.cantidad,
+      nombre_item: item.nombre_item,
+      precio_unitario: null,
+    })),
+  });
 
-  for (const item of productosItems) {
-    const { data: productoActual, error: productoError } = await supabase
-      .from("productos")
-      .select("id, stock, precio_compra, nombre")
-      .eq("id", item.producto_id as string)
-      .single();
+  const { error: deleteTareasError } = await supabase
+    .from("ordenes_tareas_tecnicos")
+    .delete()
+    .eq("orden_id", ordenId);
 
-    if (productoError || !productoActual) {
-      throw new Error(
-        `No se pudo obtener el producto para devolver stock: ${item.nombre_item ?? ""}`
-      );
-    }
-
-    const cantidad = Number(item.cantidad || 0);
-    const nuevoStock = Number(productoActual.stock || 0) + cantidad;
-    const costoUnitario = Number(productoActual.precio_compra || 0);
-
-    const { error: updateStockError } = await supabase
-      .from("productos")
-      .update({ stock: nuevoStock })
-      .eq("id", item.producto_id as string);
-
-    if (updateStockError) {
-      throw new Error(`No se pudo devolver stock de ${productoActual.nombre}`);
-    }
-
-    const { error: movimientoError } = await supabase
-      .from("producto_movimientos")
-      .insert([
-        {
-          producto_id: item.producto_id,
-          tipo: "entrada",
-          motivo: "Devolución por orden cancelada",
-          cantidad,
-          costo_unitario: costoUnitario,
-          precio_unitario: null,
-          total: cantidad * costoUnitario,
-          referencia_tipo: "orden_cancelada",
-          referencia_id: ordenId,
-        },
-      ]);
-
-    if (movimientoError) {
-      throw new Error(
-        `No se pudo registrar la devolución de stock de ${productoActual.nombre}`
-      );
-    }
+  if (deleteTareasError) {
+    throw new Error("No se pudieron borrar las tareas de la orden.");
   }
 
-  await supabase.from("ordenes_tareas_tecnicos").delete().eq("orden_id", ordenId);
-  await supabase.from("ordenes_tecnicos").delete().eq("orden_id", ordenId);
-  await supabase.from("recordatorios").delete().eq("orden_id", ordenId);
+  const { error: deleteTecnicosError } = await supabase
+    .from("ordenes_tecnicos")
+    .delete()
+    .eq("orden_id", ordenId);
+
+  if (deleteTecnicosError) {
+    throw new Error("No se pudieron borrar las asignaciones de técnicos.");
+  }
+
+  const { error: deleteRecordatoriosError } = await supabase
+    .from("recordatorios")
+    .delete()
+    .eq("orden_id", ordenId);
+
+  if (deleteRecordatoriosError) {
+    throw new Error("No se pudieron borrar los recordatorios de la orden.");
+  }
 
   const { error: deleteItemsError } = await supabase
     .from("orden_items")
