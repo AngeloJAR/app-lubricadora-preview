@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { cancelarYEliminarOrden, updateOrdenEstado } from "./actions";
 import {
   getEstadoClasses,
@@ -34,7 +34,13 @@ function getEstadosDisponibles(
   const permitidosAdminRecepcion: Record<OrdenEstado, OrdenEstado[]> = {
     pendiente: ["pendiente", "en_proceso", "cancelada"],
     en_proceso: ["pendiente", "en_proceso", "completada", "cancelada"],
-    completada: ["pendiente", "en_proceso", "completada", "entregada", "cancelada"],
+    completada: [
+      "pendiente",
+      "en_proceso",
+      "completada",
+      "entregada",
+      "cancelada",
+    ],
     entregada: ["entregada"],
     cancelada: ["cancelada"],
   };
@@ -52,10 +58,6 @@ export function OrdenEstadoSelect({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setEstado(estadoActual);
-  }, [estadoActual]);
-
   const estadosDisponibles = useMemo(() => {
     return getEstadosDisponibles(estadoActual, rol);
   }, [estadoActual, rol]);
@@ -63,30 +65,26 @@ export function OrdenEstadoSelect({
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const nuevoEstado = e.target.value as OrdenEstado;
 
-    if (nuevoEstado === estado) {
-      return;
-    }
-
-    setError("");
+    if (nuevoEstado === estado) return;
 
     const estadoAnterior = estado;
+
     setEstado(nuevoEstado);
+    setError("");
 
     try {
       setLoading(true);
 
       if (nuevoEstado === "cancelada") {
         const confirmed = window.confirm(
-          "La orden se marcará como cancelada y se eliminará permanentemente. Esta acción no se puede deshacer. ¿Deseas continuar?"
+          "La orden se eliminará permanentemente. ¿Deseas continuar?"
         );
 
         if (!confirmed) {
           setEstado(estadoAnterior);
           return;
         }
-      }
 
-      if (nuevoEstado === "cancelada") {
         await cancelarYEliminarOrden(ordenId);
       } else {
         await updateOrdenEstado(ordenId, nuevoEstado);
@@ -120,7 +118,9 @@ export function OrdenEstadoSelect({
       >
         {estadosDisponibles.map((item) => (
           <option key={item} value={item}>
-            {loading && item === estado ? "Actualizando..." : getEstadoLabel(item)}
+            {loading && item === estado
+              ? "Actualizando..."
+              : getEstadoLabel(item)}
           </option>
         ))}
       </select>

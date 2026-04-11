@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getTipoTareaLabel } from "./constants";
 
@@ -71,7 +71,7 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  async function loadResumen() {
+  const loadResumen = useCallback(async () => {
     try {
       setLoadingResumen(true);
       setError("");
@@ -146,7 +146,7 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
     } finally {
       setLoadingResumen(false);
     }
-  }
+  }, [ordenes]);
 
   async function recalcularEstadoOrdenCliente(ordenId: string) {
     const { data: ordenActual, error: ordenActualError } = await supabase
@@ -294,7 +294,6 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
 
       await recalcularEstadoOrdenCliente(tarea.orden_id);
       await loadResumen();
-      window.location.reload();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "No se pudo actualizar la tarea.";
@@ -306,8 +305,52 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
 
   useEffect(() => {
     loadResumen();
-  }, [ordenes.length]);
+  }, [loadResumen]);
 
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("mis-ordenes-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordenes_tareas_tecnicos",
+        },
+        async () => {
+          await loadResumen();
+        }
+      )
+
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordenes_tecnicos",
+        },
+        async () => {
+          await loadResumen();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordenes_trabajo",
+        },
+        async () => {
+          await loadResumen();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadResumen]);
   const ordenesOrdenadas = useMemo(() => {
     const prioridad: Record<string, number> = {
       en_proceso: 1,
@@ -334,6 +377,9 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
 
   return (
     <div className="grid gap-4">
+      <p className="text-sm text-gray-500">
+        Gestiona tus tareas: inicia y finaliza según avances.
+      </p>
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -353,8 +399,12 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
         return (
           <section
             key={orden.id}
-            className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+            className={`rounded-2xl border p-5 shadow-sm transition hover:shadow-md ${orden.estado === "en_proceso"
+                ? "border-blue-400 bg-blue-50"
+                : "border-gray-200 bg-white"
+              }`}
           >
+
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-xl font-bold tracking-wide">
@@ -387,6 +437,21 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
                 Avance de la orden:{" "}
                 {loadingResumen ? "..." : `${resumen.completadas}/${resumen.total}`}
               </p>
+              {resumen.total > 0 ? (
+                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                  <div
+                    className="h-full bg-green-500 transition-all"
+                    style={{
+                      width: `${(resumen.completadas / resumen.total) * 100}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+              {todasCompletadas ? (
+                <p className="text-green-600 font-medium">
+                  ✔ Todas las tareas completadas
+                </p>
+              ) : null}
             </div>
 
             <div className="mt-4 grid gap-3">
@@ -395,57 +460,65 @@ export function MisOrdenesView({ ordenes }: MisOrdenesViewProps) {
                   No tienes tareas asignadas todavía en esta orden.
                 </div>
               ) : (
-                resumen.propias.map((tarea) => (
-                  <div
-                    key={tarea.id}
-                    className="rounded-2xl border border-gray-200 p-4"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="font-medium">{getTipoTareaLabel(tarea.tipo_tarea)}</p>
-                        <p className="text-sm text-gray-500">
-                          {tarea.descripcion || "Sin descripción"}
-                        </p>
-                      </div>
+                [...resumen.propias]
+                  .sort((a, b) => {
+                    const orden = {
+                      en_proceso: 0,
+                      pendiente: 1,
+                      completada: 2,
+                    };
+                    return (orden[a.estado] ?? 99) - (orden[b.estado] ?? 99);
+                  })
+                  .map((tarea) => (
+                    <div
+                      key={tarea.id}
+                      className="rounded-2xl border border-gray-200 p-4"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-medium">{getTipoTareaLabel(tarea.tipo_tarea)}</p>
+                          <p className="text-sm text-gray-500">
+                            {tarea.descripcion || "Sin descripción"}
+                          </p>
+                        </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            tarea.estado === "pendiente"
+                        <div className="flex flex-wrap gap-2">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tarea.estado === "pendiente"
                               ? "bg-yellow-100 text-yellow-700"
                               : tarea.estado === "en_proceso"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-green-100 text-green-700"
-                          }`}
-                        >
-                          {tarea.estado.replaceAll("_", " ")}
-                        </span>
-
-                        {tarea.estado === "pendiente" ? (
-                          <button
-                            type="button"
-                            onClick={() => cambiarEstadoTarea(tarea, "en_proceso")}
-                            disabled={loadingTaskId === tarea.id}
-                            className="inline-flex rounded-xl bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-green-100 text-green-700"
+                              }`}
                           >
-                            {loadingTaskId === tarea.id ? "..." : "Iniciar"}
-                          </button>
-                        ) : null}
+                            {tarea.estado.replaceAll("_", " ")}
+                          </span>
 
-                        {tarea.estado !== "completada" ? (
-                          <button
-                            type="button"
-                            onClick={() => cambiarEstadoTarea(tarea, "completada")}
-                            disabled={loadingTaskId === tarea.id}
-                            className="inline-flex rounded-xl bg-green-600 px-3 py-2 text-xs text-white disabled:opacity-60"
-                          >
-                            {loadingTaskId === tarea.id ? "..." : "Finalizar"}
-                          </button>
-                        ) : null}
+                          {tarea.estado === "pendiente" ? (
+                            <button
+                              type="button"
+                              onClick={() => cambiarEstadoTarea(tarea, "en_proceso")}
+                              disabled={loadingTaskId === tarea.id}
+                              className="inline-flex rounded-xl bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                            >
+                              {loadingTaskId === tarea.id ? "..." : "Iniciar tarea"}
+                            </button>
+                          ) : null}
+
+                          {tarea.estado === "en_proceso" ? (
+                            <button
+                              type="button"
+                              onClick={() => cambiarEstadoTarea(tarea, "completada")}
+                              disabled={loadingTaskId === tarea.id}
+                              className="inline-flex rounded-xl bg-green-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                            >
+                              {loadingTaskId === tarea.id ? "..." : "Completar"}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))
               )}
             </div>
 

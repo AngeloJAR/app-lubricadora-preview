@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { OrdenConRelaciones } from "@/types";
 import { OrdenEstadoSelect } from "./orden-estado-select";
 import { CobrarModal } from "./cobrar-modal";
+import type { OrdenEstado } from "@/utils/orden-status";
 
 type OrdenesTableProps = {
   ordenes: OrdenConRelaciones[];
@@ -110,12 +111,11 @@ export function OrdenesTable({
   canViewTotales,
   rol,
 }: OrdenesTableProps) {
-  const [rows, setRows] = useState<OrdenConRelaciones[]>([]);
   const [ordenCobrar, setOrdenCobrar] =
     useState<OrdenConRelaciones | null>(null);
-  const [filtro, setFiltro] = useState<FiltroOrden>(
-    rol === "tecnico" ? "activas" : "activas"
-  );
+
+  const [filtro, setFiltro] = useState<FiltroOrden>("activas");
+  const [rows, setRows] = useState<OrdenConRelaciones[]>(ordenes);
 
   const isTecnico = rol === "tecnico";
   const isAdminView = rol === "admin" || rol === "recepcion";
@@ -176,28 +176,28 @@ export function OrdenesTable({
     return copia;
   }, [rows, filtro, isAdminView]);
 
-  function handleEstadoUpdated(
-    ordenId: string,
-    nuevoEstado: OrdenConRelaciones["estado"]
-  ) {
-    setRows((prev) => {
-      const updated = prev.map((orden) =>
-        orden.id === ordenId ? { ...orden, estado: nuevoEstado } : orden
-      );
+  function handleCobrar(orden: OrdenConRelaciones) {
+    setOrdenCobrar(orden);
+  }
 
-      if (filtro === "activas") {
-        return updated.filter(
-          (orden) =>
-            orden.estado !== "entregada" && orden.estado !== "cancelada"
+  function handleEstadoUpdated(id: string, nuevoEstado: OrdenEstado) {
+    setOrdenCobrar(null);
+
+    setRows((prev) => {
+      if (nuevoEstado === "cancelada") {
+        setTimeout(() => {
+          setRows((prev) => prev.filter((o) => o.id !== id));
+        }, 300);
+
+        return prev.map((o) =>
+          o.id === id ? { ...o, estado: "cancelada" } : o
         );
       }
 
-      return updated;
+      return prev.map((o) =>
+        o.id === id ? { ...o, estado: nuevoEstado } : o
+      );
     });
-  }
-
-  function handleCobrar(orden: OrdenConRelaciones) {
-    setOrdenCobrar(orden);
   }
 
   const filtros: Array<{
@@ -346,7 +346,9 @@ export function OrdenesTable({
                       </div>
 
                       <div
-                        className={`grid gap-3 ${isTecnico ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-5"
+                        className={`grid gap-3 ${isTecnico
+                          ? "sm:grid-cols-2 xl:grid-cols-4"
+                          : "sm:grid-cols-2 xl:grid-cols-5"
                           }`}
                       >
                         <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4">
@@ -497,7 +499,7 @@ export function OrdenesTable({
             setOrdenCobrar(null);
 
             if (estadoFinal === "entregada") {
-              handleEstadoUpdated(ordenCobrar.id, "entregada");
+              setRows((prev) => prev.filter((o) => o.id !== ordenCobrar.id));
             }
           }}
         />

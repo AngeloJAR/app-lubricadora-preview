@@ -21,23 +21,16 @@ export function OrdenesView({
 }: OrdenesViewProps) {
   const [ordenes, setOrdenes] = useState<OrdenConRelaciones[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingRefresh, setLoadingRefresh] = useState(false);
   const [error, setError] = useState("");
 
   const mountedRef = useRef(true);
-  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
-  const loadOrdenes = useCallback(async (isRefresh = false) => {
+  const loadOrdenes = useCallback(async () => {
     try {
       setError("");
-
-      if (isRefresh) {
-        setLoadingRefresh(true);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
 
       const data =
         rol === "tecnico" ? await getOrdenesTecnico() : await getOrdenes();
@@ -49,31 +42,16 @@ export function OrdenesView({
       if (!mountedRef.current) return;
 
       const message =
-        err instanceof Error ? err.message : "No se pudieron cargar las órdenes.";
+        err instanceof Error
+          ? err.message
+          : "No se pudieron cargar las órdenes.";
 
       setError(message);
     } finally {
       if (!mountedRef.current) return;
-
-      if (isRefresh) {
-        setLoadingRefresh(false);
-      } else {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [rol]);
-
-  const scheduleRefresh = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    if (refreshTimeoutRef.current) {
-      clearTimeout(refreshTimeoutRef.current);
-    }
-
-    refreshTimeoutRef.current = setTimeout(() => {
-      loadOrdenes(true);
-    }, 300);
-  }, [loadOrdenes]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -81,10 +59,6 @@ export function OrdenesView({
 
     return () => {
       mountedRef.current = false;
-
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
-      }
     };
   }, [loadOrdenes]);
 
@@ -98,8 +72,23 @@ export function OrdenesView({
           schema: "public",
           table: "ordenes_trabajo",
         },
-        () => {
-          scheduleRefresh();
+        async () => {
+          if (!mountedRef.current) return;
+          await loadOrdenes();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordenes_tareas_tecnicos",
+        },
+        async () => {
+          if (!mountedRef.current) return;
+          if (rol === "tecnico") {
+            await loadOrdenes();
+          }
         }
       )
       .on(
@@ -109,28 +98,27 @@ export function OrdenesView({
           schema: "public",
           table: "ordenes_tecnicos",
         },
-        () => {
-          scheduleRefresh();
+        async () => {
+          if (!mountedRef.current) return;
+          await loadOrdenes();
         }
       )
-      .subscribe((status) => {
-        console.log("Realtime órdenes:", status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [rol, scheduleRefresh, supabase]);
+  }, [supabase, rol, loadOrdenes]);
 
   async function handleCreated(nuevaOrden?: OrdenConRelaciones | null) {
     if (nuevaOrden && mountedRef.current) {
-      setOrdenes((prev) => {
-        const sinDuplicados = prev.filter((item) => item.id !== nuevaOrden.id);
-        return [nuevaOrden, ...sinDuplicados];
-      });
+      setOrdenes((prev) => [
+        nuevaOrden,
+        ...prev.filter((item) => item.id !== nuevaOrden.id),
+      ]);
     }
 
-    await loadOrdenes(true);
+    await loadOrdenes();
   }
 
   return (
@@ -151,19 +139,11 @@ export function OrdenesView({
             {error}
           </div>
         ) : (
-          <div className="grid gap-3">
-            {loadingRefresh ? (
-              <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                Actualizando órdenes...
-              </div>
-            ) : null}
-
-            <OrdenesTable
-              ordenes={ordenes}
-              canViewTotales={canViewTotales}
-              rol={rol}
-            />
-          </div>
+          <OrdenesTable
+            ordenes={ordenes}
+            canViewTotales={canViewTotales}
+            rol={rol}
+          />
         )}
       </Card>
     </div>

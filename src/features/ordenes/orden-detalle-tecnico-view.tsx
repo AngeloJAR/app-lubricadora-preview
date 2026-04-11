@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 
 import type { OrdenDetalle, OrdenTareaTecnico } from "@/types";
@@ -75,7 +75,7 @@ export function OrdenDetalleTecnicoView({
   const todasLasTareasCompletadas =
     tareasTotales > 0 && tareasCompletadas === tareasTotales;
 
-  async function reloadTareas() {
+  const reloadTareas = useCallback(async () => {
     try {
       setLoadingTareas(true);
       setErrorTareas("");
@@ -91,7 +91,7 @@ export function OrdenDetalleTecnicoView({
     } finally {
       setLoadingTareas(false);
     }
-  }
+  }, [orden.id]);
 
   async function handleIniciarTrabajo() {
     try {
@@ -114,6 +114,10 @@ export function OrdenDetalleTecnicoView({
 
   async function handleFinalizarTrabajo() {
     try {
+      if (orden.estado !== "en_proceso") {
+        setErrorAction("La orden no está en proceso.");
+        return;
+      }
       if (!todasLasTareasCompletadas) {
         setErrorAction("Debes completar todas las tareas antes de finalizar.");
         return;
@@ -170,13 +174,14 @@ export function OrdenDetalleTecnicoView({
 
   useEffect(() => {
     reloadTareas();
-  }, [orden.id]);
+  }, [reloadTareas]);
 
   return (
     <div className="grid gap-4">
       <OrdenResumenCard
         orden={orden}
-        showKilometrajeFinal
+        showKilometrajeFinal={false}
+        showTotal={false}
         rightContent={
           <>
             <div className="flex flex-wrap justify-end gap-2">
@@ -184,8 +189,12 @@ export function OrdenDetalleTecnicoView({
                 <button
                   type="button"
                   onClick={handleIniciarTrabajo}
-                  disabled={loadingAction || tareasTotales === 0 || tareasEnProceso > 0}
-                  className="inline-flex rounded-xl bg-yellow-500 border border-yellow-300 px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
+                  disabled={
+                    loadingAction ||
+                    tareasTotales === 0 ||
+                    tareasEnProceso > 0 ||
+                    orden.estado !== "pendiente"
+                  } className="inline-flex rounded-xl bg-yellow-500 border border-yellow-300 px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
                 >
                   {loadingAction ? "Procesando..." : "Iniciar trabajo"}
                 </button>
@@ -228,7 +237,11 @@ export function OrdenDetalleTecnicoView({
         </div>
       ) : null}
 
-      <OrdenItemsCard orden={orden} />
+      <OrdenItemsCard
+        orden={orden}
+        showTotals={false}
+        hidePrices
+      />
       <Card title="Tareas de la orden">
         {loadingTareas ? (
           <p className="text-gray-600">Cargando tareas...</p>
@@ -247,7 +260,7 @@ export function OrdenDetalleTecnicoView({
                   pendiente: 1,
                   completada: 2,
                 };
-                return orden[a.estado] - orden[b.estado];
+                return (orden[a.estado] ?? 99) - (orden[b.estado] ?? 99);
               })
               .map((tarea) => (
                 <div

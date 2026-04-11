@@ -71,6 +71,19 @@ export function OrdenResumenCard({
   showTotal = false,
   showKilometrajeFinal = false,
 }: OrdenResumenCardProps) {
+  const totalCalculado =
+    orden.orden_items?.reduce(
+      (acc, item) =>
+        acc +
+        Number(item.cantidad || 0) *
+        Number(item.precio_unitario || 0),
+      0
+    ) ?? 0;
+
+  const totalFinal =
+    totalCalculado -
+    Number(orden.descuento || 0) -
+    Number(orden.descuento_puntos || 0);
   return (
     <Card title="Resumen de la orden">
       <div className="grid gap-4">
@@ -98,7 +111,10 @@ export function OrdenResumenCard({
               <div className="rounded-2xl border border-gray-200 p-4">
                 <p className="text-sm text-gray-500">Total</p>
                 <p className="mt-1 text-2xl font-bold">
-                  {formatMoney(orden.total)}
+                  {formatMoney(
+                    orden.total && orden.total > 0 ? orden.total : totalFinal
+                  )}
+
                 </p>
               </div>
             ) : null}
@@ -280,17 +296,31 @@ export function OrdenClienteVehiculoCards({
 type OrdenItemsCardProps = {
   orden: OrdenDetalle;
   showTotals?: boolean;
+  hidePrices?: boolean;
 };
 
 export function OrdenItemsCard({
   orden,
   showTotals = false,
+  hidePrices = false,
 }: OrdenItemsCardProps) {
   const subtotal = Number(orden.subtotal ?? 0);
   const descuentoManual = Number(orden.descuento ?? 0);
   const descuentoPuntos = Number(orden.descuento_puntos ?? 0);
   const descuentoTotal = descuentoManual + descuentoPuntos;
+  const totalCalculado =
+    orden.orden_items.reduce(
+      (acc, item) =>
+        acc +
+        Number(item.cantidad || 0) *
+        Number(item.precio_unitario || 0),
+      0
+    );
 
+  const totalFinal =
+    totalCalculado -
+    descuentoManual -
+    descuentoPuntos;
   return (
     <Card title="Servicios / Items de la orden">
       {orden.orden_items.length === 0 ? (
@@ -304,8 +334,13 @@ export function OrdenItemsCard({
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Tipo</th>
                   <th className="px-4 py-3">Cantidad</th>
-                  <th className="px-4 py-3">Precio unitario</th>
-                  <th className="px-4 py-3">Total</th>
+                  {!hidePrices && (
+                    <th className="px-4 py-3">Precio unitario</th>
+                  )}
+
+                  {!hidePrices && (
+                    <th className="px-4 py-3">Total</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -314,22 +349,26 @@ export function OrdenItemsCard({
                     <td className="px-4 py-3 font-medium">{item.nombre_item}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                          item.tipo_item === "servicio"
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-gray-100 text-gray-700"
-                        }`}
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${item.tipo_item === "servicio"
+                          ? "bg-blue-50 text-blue-700"
+                          : "bg-gray-100 text-gray-700"
+                          }`}
                       >
                         {item.tipo_item === "servicio" ? "Servicio" : "Producto"}
                       </span>
                     </td>
                     <td className="px-4 py-3">{item.cantidad}</td>
-                    <td className="px-4 py-3">
-                      {formatMoney(item.precio_unitario)}
-                    </td>
-                    <td className="px-4 py-3 font-semibold">
-                      {formatMoney(item.total)}
-                    </td>
+                    {!hidePrices && (
+                      <td className="px-4 py-3">
+                        {formatMoney(item.precio_unitario)}
+                      </td>
+                    )}
+
+                    {!hidePrices && (
+                      <td className="px-4 py-3 font-semibold">
+                        {formatMoney(item.total)}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -368,7 +407,9 @@ export function OrdenItemsCard({
                 <div className="flex items-center justify-between border-t border-gray-200 pt-2 text-base">
                   <span className="font-semibold text-gray-900">Total final</span>
                   <span className="font-bold text-gray-900">
-                    {formatMoney(orden.total)}
+                    {formatMoney(
+                      orden.total && orden.total > 0 ? orden.total : totalFinal
+                    )}
                   </span>
                 </div>
               </div>

@@ -18,7 +18,37 @@ import { calcularDescuentoPorPuntos } from "@/features/clientes/fidelizacion-reg
 
 import { registrarAuditoriaLog } from "@/lib/core/auditoria/logs";
 
+import { updateOrdenEstado as updateOrdenEstadoAction } from "./actions/estado-actions";
 
+import {
+  deleteOrdenCancelada as deleteOrdenCanceladaAction,
+  createOrden as createOrdenAction,
+} from "./actions/mutations";
+
+export async function updateOrdenEstado(
+  ordenId: string,
+  estado: OrdenTrabajo["estado"]
+) {
+  return updateOrdenEstadoAction(ordenId, estado);
+}
+
+export async function deleteOrdenCancelada(ordenId: string) {
+  return deleteOrdenCanceladaAction(ordenId);
+}
+
+export async function createOrden(payload: OrdenFormData) {
+  return createOrdenAction(payload);
+}
+
+
+import { updateOrden as updateOrdenAction } from "./actions/mutations";
+
+export async function updateOrden(
+  ordenId: string,
+  payload: OrdenFormData
+) {
+  return updateOrdenAction(ordenId, payload);
+}
 import type {
   Cliente,
   HistorialOrden,
@@ -1276,150 +1306,150 @@ export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
   }));
 }
 
-export async function createOrden(payload: OrdenFormData) {
-  const supabase = await requireAdminOrRecepcion();
+// export async function createOrden(payload: OrdenFormData) {
+//   const supabase = await requireAdminOrRecepcion();
 
-  if (!payload.items.length) {
-    throw new Error("Debes agregar al menos un item.");
-  }
+//   if (!payload.items.length) {
+//     throw new Error("Debes agregar al menos un item.");
+//   }
 
-  const {
-    itemsConTotal,
-    totales,
-    descuentoManual,
-    descuentoPuntos,
-    puntosCanjear,
-  } = construirTotalesOrdenDesdePayload({
-    payload,
-    calcularDescuentoPorPuntos,
-  });
+//   const {
+//     itemsConTotal,
+//     totales,
+//     descuentoManual,
+//     descuentoPuntos,
+//     puntosCanjear,
+//   } = construirTotalesOrdenDesdePayload({
+//     payload,
+//     calcularDescuentoPorPuntos,
+//   });
 
-  const subtotal = totales.subtotal;
-  const total = totales.total;
+//   const subtotal = totales.subtotal;
+//   const total = totales.total;
 
-  const numero = generateOrderNumber();
+//   const numero = generateOrderNumber();
 
-  const { data: orden, error: ordenError } = await supabase
-    .from("ordenes_trabajo")
-    .insert([
-      {
-        numero,
-        cliente_id: payload.cliente_id,
-        vehiculo_id: payload.vehiculo_id,
-        tecnico_id: payload.tecnico_id.trim() || null,
-        kilometraje: payload.kilometraje.trim()
-          ? Number(payload.kilometraje)
-          : null,
-        subtotal,
-        descuento: descuentoManual,
-        descuento_puntos: descuentoPuntos,
-        puntos_usados: puntosCanjear,
-        total,
-        notas: payload.notas.trim() || null,
-        proximo_mantenimiento_fecha:
-          payload.proximo_mantenimiento_fecha.trim() || null,
-        proximo_mantenimiento_km: payload.proximo_mantenimiento_km.trim()
-          ? Number(payload.proximo_mantenimiento_km)
-          : null,
-      },
-    ])
-    .select()
-    .single();
+//   const { data: orden, error: ordenError } = await supabase
+//     .from("ordenes_trabajo")
+//     .insert([
+//       {
+//         numero,
+//         cliente_id: payload.cliente_id,
+//         vehiculo_id: payload.vehiculo_id,
+//         tecnico_id: payload.tecnico_id.trim() || null,
+//         kilometraje: payload.kilometraje.trim()
+//           ? Number(payload.kilometraje)
+//           : null,
+//         subtotal,
+//         descuento: descuentoManual,
+//         descuento_puntos: descuentoPuntos,
+//         puntos_usados: puntosCanjear,
+//         total,
+//         notas: payload.notas.trim() || null,
+//         proximo_mantenimiento_fecha:
+//           payload.proximo_mantenimiento_fecha.trim() || null,
+//         proximo_mantenimiento_km: payload.proximo_mantenimiento_km.trim()
+//           ? Number(payload.proximo_mantenimiento_km)
+//           : null,
+//       },
+//     ])
+//     .select()
+//     .single();
 
-  if (ordenError || !orden) {
-    throw new Error(ordenError?.message || "No se pudo crear la orden");
-  }
+//   if (ordenError || !orden) {
+//     throw new Error(ordenError?.message || "No se pudo crear la orden");
+//   }
 
-  await guardarAsignacionesTecnicosOrden({
-    ordenId: orden.id,
-    tecnicoPrincipalId: payload.tecnico_id?.trim() || null,
-    tecnicosIds: payload.tecnicos_ids ?? [],
-  });
+//   await guardarAsignacionesTecnicosOrden({
+//     ordenId: orden.id,
+//     tecnicoPrincipalId: payload.tecnico_id?.trim() || null,
+//     tecnicosIds: payload.tecnicos_ids ?? [],
+//   });
 
-  const itemsToInsert = itemsConTotal.map((item) => ({
-    orden_id: orden.id,
-    ...item,
-  }));
+//   const itemsToInsert = itemsConTotal.map((item) => ({
+//     orden_id: orden.id,
+//     ...item,
+//   }));
 
-  const { error: itemsError } = await supabase
-    .from("orden_items")
-    .insert(itemsToInsert);
+//   const { error: itemsError } = await supabase
+//     .from("orden_items")
+//     .insert(itemsToInsert);
 
-  if (itemsError) {
-    throw new Error(itemsError.message || "No se pudieron guardar los items");
-  }
+//   if (itemsError) {
+//     throw new Error(itemsError.message || "No se pudieron guardar los items");
+//   }
 
-  if (puntosCanjear > 0) {
-    await canjearPuntosCliente({
-      clienteId: payload.cliente_id,
-      puntos: puntosCanjear,
-      motivo: `Canje aplicado en la orden ${orden.numero}`,
-      ordenId: orden.id,
-    });
-  }
-  await procesarSalidaStockPorOrden({
-    supabase,
-    ordenId: orden.id,
-    items: itemsConTotal,
-  });
-  const recordatoriosAInsertar = [];
+//   if (puntosCanjear > 0) {
+//     await canjearPuntosCliente({
+//       clienteId: payload.cliente_id,
+//       puntos: puntosCanjear,
+//       motivo: `Canje aplicado en la orden ${orden.numero}`,
+//       ordenId: orden.id,
+//     });
+//   }
+//   await procesarSalidaStockPorOrden({
+//     supabase,
+//     ordenId: orden.id,
+//     items: itemsConTotal,
+//   });
+//   const recordatoriosAInsertar = [];
 
-  if (payload.proximo_mantenimiento_fecha.trim()) {
-    recordatoriosAInsertar.push({
-      cliente_id: payload.cliente_id,
-      vehiculo_id: payload.vehiculo_id,
-      orden_id: orden.id,
-      tipo: "fecha",
-      canal: "manual",
-      fecha_programada: payload.proximo_mantenimiento_fecha,
-      kilometraje_programado: null,
-      mensaje: `Recordar mantenimiento por fecha para la orden ${orden.numero}`,
-      estado: "pendiente",
-    });
-  }
-  await registrarAuditoriaLog({
-    supabase,
-    entidad: "orden",
-    entidad_id: orden.id,
-    accion: "crear",
-    descripcion: `Orden creada ${orden.numero}`,
-    datos_despues: {
-      total,
-      cliente_id: payload.cliente_id,
-    },
-  });
-  if (payload.proximo_mantenimiento_km.trim()) {
-    recordatoriosAInsertar.push({
-      cliente_id: payload.cliente_id,
-      vehiculo_id: payload.vehiculo_id,
-      orden_id: orden.id,
-      tipo: "kilometraje",
-      canal: "manual",
-      fecha_programada: null,
-      kilometraje_programado: Number(payload.proximo_mantenimiento_km),
-      mensaje: `Recordar mantenimiento por kilometraje para la orden ${orden.numero}`,
-      estado: "pendiente",
-    });
-  }
+//   if (payload.proximo_mantenimiento_fecha.trim()) {
+//     recordatoriosAInsertar.push({
+//       cliente_id: payload.cliente_id,
+//       vehiculo_id: payload.vehiculo_id,
+//       orden_id: orden.id,
+//       tipo: "fecha",
+//       canal: "manual",
+//       fecha_programada: payload.proximo_mantenimiento_fecha,
+//       kilometraje_programado: null,
+//       mensaje: `Recordar mantenimiento por fecha para la orden ${orden.numero}`,
+//       estado: "pendiente",
+//     });
+//   }
+//   await registrarAuditoriaLog({
+//     supabase,
+//     entidad: "orden",
+//     entidad_id: orden.id,
+//     accion: "crear",
+//     descripcion: `Orden creada ${orden.numero}`,
+//     datos_despues: {
+//       total,
+//       cliente_id: payload.cliente_id,
+//     },
+//   });
+//   if (payload.proximo_mantenimiento_km.trim()) {
+//     recordatoriosAInsertar.push({
+//       cliente_id: payload.cliente_id,
+//       vehiculo_id: payload.vehiculo_id,
+//       orden_id: orden.id,
+//       tipo: "kilometraje",
+//       canal: "manual",
+//       fecha_programada: null,
+//       kilometraje_programado: Number(payload.proximo_mantenimiento_km),
+//       mensaje: `Recordar mantenimiento por kilometraje para la orden ${orden.numero}`,
+//       estado: "pendiente",
+//     });
+//   }
 
-  if (recordatoriosAInsertar.length > 0) {
-    const { error: recordatoriosError } = await supabase
-      .from("recordatorios")
-      .insert(recordatoriosAInsertar);
+//   if (recordatoriosAInsertar.length > 0) {
+//     const { error: recordatoriosError } = await supabase
+//       .from("recordatorios")
+//       .insert(recordatoriosAInsertar);
 
-    if (recordatoriosError) {
-      console.error(
-        "No se pudieron crear los recordatorios:",
-        recordatoriosError.message
-      );
-    }
-  }
+//     if (recordatoriosError) {
+//       console.error(
+//         "No se pudieron crear los recordatorios:",
+//         recordatoriosError.message
+//       );
+//     }
+//   }
 
-  const ordenCompleta = await getOrdenes();
-  const creada = ordenCompleta.find((item) => item.id === orden.id);
+//   const ordenCompleta = await getOrdenes();
+//   const creada = ordenCompleta.find((item) => item.id === orden.id);
 
-  return creada ?? orden;
-}
+//   return creada ?? orden;
+// }
 
 export async function createPreOrdenTecnico(payload: OrdenFormData) {
   const { supabase, perfil } = await requirePerfilActivo(["tecnico"]);
@@ -1590,161 +1620,6 @@ export async function getHistorialByVehiculo(
     orden_items: row.orden_items ?? [],
   }));
 }
-
-export async function updateOrdenEstado(
-  ordenId: string,
-  estado: OrdenTrabajo["estado"]
-) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("No autorizado");
-  }
-
-  const { data: perfil, error: perfilError } = await supabase
-    .from("usuarios_app")
-    .select("rol, activo")
-    .eq("id", user.id)
-    .eq("activo", true)
-    .maybeSingle();
-
-  if (perfilError || !perfil) {
-    throw new Error("No autorizado");
-  }
-
-  const { data: ordenAntes, error: ordenAntesError } = await supabase
-    .from("ordenes_trabajo")
-    .select("id, cliente_id, vehiculo_id, estado, hora_inicio, hora_fin")
-    .eq("id", ordenId)
-    .single();
-
-  if (ordenAntesError || !ordenAntes) {
-    console.error(
-      "Error obteniendo orden antes de actualizar:",
-      ordenAntesError?.message
-    );
-    throw new Error("No se pudo validar la orden");
-  }
-
-  console.log("TRANSICION ORDEN DEBUG", {
-    ordenId,
-    rol: perfil.rol,
-    estadoActual: ordenAntes.estado,
-    nuevoEstado: estado,
-    from: "updateOrdenEstado",
-  });
-  const validacionTransicion = validarTransicionEstadoOrden({
-    rol: perfil.rol as "admin" | "recepcion" | "tecnico",
-    estadoActual: ordenAntes.estado,
-    nuevoEstado: estado,
-  });
-
-  if (!validacionTransicion.ok) {
-    throw new Error(validacionTransicion.errores.join(" | "));
-  }
-
-  const payloadUpdate: Partial<OrdenTrabajo> = {
-    estado,
-  };
-
-  if (estado === "en_proceso" && !ordenAntes.hora_inicio) {
-    payloadUpdate.hora_inicio = new Date().toISOString();
-  }
-
-  if (estado === "completada") {
-    if (!ordenAntes.hora_inicio) {
-      payloadUpdate.hora_inicio = new Date().toISOString();
-    }
-
-    payloadUpdate.hora_fin = new Date().toISOString();
-  }
-
-  if (estado === "pendiente") {
-    payloadUpdate.hora_fin = null;
-  }
-
-  if (estado === "en_proceso") {
-    payloadUpdate.hora_fin = null;
-  }
-
-  const { data, error } = await supabase
-    .from("ordenes_trabajo")
-    .update(payloadUpdate)
-    .eq("id", ordenId)
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Error al actualizar estado de la orden:", error.message);
-    throw new Error("No se pudo actualizar el estado de la orden");
-  }
-
-  await registrarAuditoriaLog({
-    supabase,
-    usuario_id: user.id,
-    entidad: "orden",
-    entidad_id: ordenId,
-    accion: "cambio_estado",
-    descripcion: `Cambio de estado de ${ordenAntes.estado} a ${estado}`,
-    datos_antes: { estado: ordenAntes.estado },
-    datos_despues: { estado },
-  });
-
-  const debeRegistrarPuntos =
-    (estado === "completada" || estado === "entregada") &&
-    ordenAntes.estado !== "completada" &&
-    ordenAntes.estado !== "entregada";
-
-  if (debeRegistrarPuntos) {
-    const { data: movimientoExistente, error: movimientoExistenteError } =
-      await supabase
-        .from("cliente_puntos_movimientos")
-        .select("id")
-        .eq("orden_id", ordenId)
-        .eq("tipo", "acumulacion")
-        .maybeSingle();
-
-    if (movimientoExistenteError) {
-      console.error(
-        "Error validando movimiento existente de puntos:",
-        movimientoExistenteError.message
-      );
-    }
-
-    if (!movimientoExistente) {
-      const { data: itemsOrden, error: itemsOrdenError } = await supabase
-        .from("orden_items")
-        .select("*")
-        .eq("orden_id", ordenId);
-
-      if (itemsOrdenError) {
-        console.error(
-          "Error obteniendo items de la orden para puntos:",
-          itemsOrdenError.message
-        );
-      } else {
-        const puntos = calcularPuntosOrden((itemsOrden ?? []) as OrdenItem[]);
-
-        if (puntos > 0) {
-          await registrarPuntosCliente({
-            clienteId: ordenAntes.cliente_id,
-            vehiculoId: ordenAntes.vehiculo_id,
-            ordenId,
-            puntos,
-            motivo: `Puntos generados por la orden ${ordenId}`,
-          });
-        }
-      }
-    }
-  }
-
-  return data;
-}
-
 
 type OrdenDetalleRow = {
   id: string;
@@ -2256,128 +2131,6 @@ type OrdenEditableRow = {
 };
 
 
-export async function updateOrden(ordenId: string, payload: OrdenFormData) {
-  const supabase = await requireAdminOrRecepcion();
-
-  const { data: ordenActual, error: ordenActualError } = await supabase
-    .from("ordenes_trabajo")
-    .select("id, numero, estado")
-    .eq("id", ordenId)
-    .single();
-
-  if (ordenActualError || !ordenActual) {
-    throw new Error("No se pudo obtener la orden actual");
-  }
-
-  if (ordenActual.estado === "entregada") {
-    throw new Error("No se puede editar una orden entregada.");
-  }
-
-  if (ordenActual.estado === "cancelada") {
-    throw new Error("No se puede editar una orden cancelada.");
-  }
-
-  if (ordenActual.estado === "completada") {
-    throw new Error("No se puede editar una orden completada.");
-  }
-
-  const {
-    itemsConTotal,
-    totales,
-    descuentoManual,
-  } = construirTotalesOrdenDesdePayload({
-    payload: {
-      ...payload,
-      puntos_canjear: "",
-      descuento_puntos: "",
-    },
-    calcularDescuentoPorPuntos,
-  });
-
-  const subtotal = totales.subtotal;
-  const total = totales.total;
-
-  const { error: updateError } = await supabase
-    .from("ordenes_trabajo")
-    .update({
-      cliente_id: payload.cliente_id,
-      vehiculo_id: payload.vehiculo_id,
-      tecnico_id: payload.tecnico_id?.trim() || null,
-      kilometraje: payload.kilometraje.trim()
-        ? Number(payload.kilometraje)
-        : null,
-      subtotal,
-      descuento: descuentoManual,
-      total,
-      notas: payload.notas.trim() || null,
-      proximo_mantenimiento_fecha:
-        payload.proximo_mantenimiento_fecha.trim() || null,
-      proximo_mantenimiento_km: payload.proximo_mantenimiento_km.trim()
-        ? Number(payload.proximo_mantenimiento_km)
-        : null,
-    })
-    .eq("id", ordenId);
-
-  if (updateError) {
-    throw new Error(updateError.message || "No se pudo actualizar la orden");
-  }
-
-  await guardarAsignacionesTecnicosOrden({
-    ordenId,
-    tecnicoPrincipalId: payload.tecnico_id?.trim() || null,
-    tecnicosIds: payload.tecnicos_ids ?? [],
-  });
-
-  const esPreOrdenActual = String(ordenActual?.numero ?? "").startsWith("PRE-");
-  const tieneTecnicoPrincipal = Boolean(payload.tecnico_id?.trim());
-  const tieneTecnicosAsignados = (payload.tecnicos_ids ?? []).length > 0;
-
-  if (esPreOrdenActual && tieneTecnicoPrincipal && tieneTecnicosAsignados) {
-    const nuevoNumero = String(ordenActual.numero).replace(/^PRE-/, "");
-
-    const { error: convertirError } = await supabase
-      .from("ordenes_trabajo")
-      .update({
-        numero: nuevoNumero,
-      })
-      .eq("id", ordenId);
-
-    if (convertirError) {
-      console.error(
-        "Error convirtiendo pre-orden a orden real:",
-        convertirError.message
-      );
-      throw new Error("No se pudo convertir la pre-orden en orden real");
-    }
-  }
-
-  const { error: deleteItemsError } = await supabase
-    .from("orden_items")
-    .delete()
-    .eq("orden_id", ordenId);
-
-  if (deleteItemsError) {
-    throw new Error("No se pudieron actualizar los items de la orden");
-  }
-
-  const { error: insertItemsError } = await supabase
-    .from("orden_items")
-    .insert(
-      itemsConTotal.map((item) => ({
-        orden_id: ordenId,
-        ...item,
-      }))
-    );
-
-  if (insertItemsError) {
-    throw new Error("No se pudieron guardar los items de la orden");
-  }
-
-  return { success: true };
-}
-
-
-
 export async function getMiRolOrdenes() {
   const { perfil } = await getPerfilActual();
   return perfil.rol;
@@ -2803,130 +2556,130 @@ export async function getServiciosSugeridosPorHistorial(clienteId: string) {
     }));
 }
 
-export async function deleteOrdenCancelada(ordenId: string) {
-  const supabase = await requireAdminOrRecepcion();
+// export async function deleteOrdenCancelada(ordenId: string) {
+//   const supabase = await requireAdminOrRecepcion();
 
-  const { data: orden, error: ordenError } = await supabase
-    .from("ordenes_trabajo")
-    .select("id, estado")
-    .eq("id", ordenId)
-    .single();
+//   const { data: orden, error: ordenError } = await supabase
+//     .from("ordenes_trabajo")
+//     .select("id, estado")
+//     .eq("id", ordenId)
+//     .single();
 
-  if (ordenError || !orden) {
-    throw new Error("No se encontró la orden.");
-  }
+//   if (ordenError || !orden) {
+//     throw new Error("No se encontró la orden.");
+//   }
 
-  if (!puedeEliminarOrdenCancelada(orden.estado)) {
-    throw new Error("Solo se pueden borrar órdenes canceladas.");
-  }
+//   if (!puedeEliminarOrdenCancelada(orden.estado)) {
+//     throw new Error("Solo se pueden borrar órdenes canceladas.");
+//   }
 
-  await registrarAuditoriaLog({
-    supabase,
-    entidad: "orden",
-    entidad_id: ordenId,
-    accion: "eliminar",
-    descripcion: "Orden eliminada (cancelada)",
-  });
+//   await registrarAuditoriaLog({
+//     supabase,
+//     entidad: "orden",
+//     entidad_id: ordenId,
+//     accion: "eliminar",
+//     descripcion: "Orden eliminada (cancelada)",
+//   });
 
-  const { data: items, error: itemsError } = await supabase
-    .from("orden_items")
-    .select("producto_id, cantidad, nombre_item")
-    .eq("orden_id", ordenId);
+//   const { data: items, error: itemsError } = await supabase
+//     .from("orden_items")
+//     .select("producto_id, cantidad, nombre_item")
+//     .eq("orden_id", ordenId);
 
-  if (itemsError) {
-    console.error(
-      "Error obteniendo items de la orden cancelada:",
-      itemsError.message
-    );
-    throw new Error("No se pudieron obtener los items.");
-  }
+//   if (itemsError) {
+//     console.error(
+//       "Error obteniendo items de la orden cancelada:",
+//       itemsError.message
+//     );
+//     throw new Error("No se pudieron obtener los items.");
+//   }
 
-  await procesarEntradaStockPorCancelacion({
-    supabase,
-    ordenId,
-    items: (items ?? []).map((item) => ({
-      tipo_item: item.producto_id ? "producto" : "servicio",
-      producto_id: item.producto_id,
-      cantidad: item.cantidad,
-      nombre_item: item.nombre_item,
-      precio_unitario: null,
-    })),
-  });
-  const { data: movimientosPuntos, error: movimientosPuntosError } =
-    await supabase
-      .from("cliente_puntos_movimientos")
-      .select("id, tipo, puntos")
-      .eq("orden_id", ordenId);
+//   await procesarEntradaStockPorCancelacion({
+//     supabase,
+//     ordenId,
+//     items: (items ?? []).map((item) => ({
+//       tipo_item: item.producto_id ? "producto" : "servicio",
+//       producto_id: item.producto_id,
+//       cantidad: item.cantidad,
+//       nombre_item: item.nombre_item,
+//       precio_unitario: null,
+//     })),
+//   });
+//   const { data: movimientosPuntos, error: movimientosPuntosError } =
+//     await supabase
+//       .from("cliente_puntos_movimientos")
+//       .select("id, tipo, puntos")
+//       .eq("orden_id", ordenId);
 
-  if (movimientosPuntosError) {
-    console.error(
-      "Error obteniendo movimientos de puntos de la orden cancelada:",
-      movimientosPuntosError.message
-    );
-    throw new Error("No se pudieron obtener los movimientos de puntos.");
-  }
+//   if (movimientosPuntosError) {
+//     console.error(
+//       "Error obteniendo movimientos de puntos de la orden cancelada:",
+//       movimientosPuntosError.message
+//     );
+//     throw new Error("No se pudieron obtener los movimientos de puntos.");
+//   }
 
-  if (movimientosPuntos && movimientosPuntos.length > 0) {
-    const { error: deleteMovimientosPuntosError } = await supabase
-      .from("cliente_puntos_movimientos")
-      .delete()
-      .eq("orden_id", ordenId);
+//   if (movimientosPuntos && movimientosPuntos.length > 0) {
+//     const { error: deleteMovimientosPuntosError } = await supabase
+//       .from("cliente_puntos_movimientos")
+//       .delete()
+//       .eq("orden_id", ordenId);
 
-    if (deleteMovimientosPuntosError) {
-      console.error(
-        "Error eliminando movimientos de puntos de la orden cancelada:",
-        deleteMovimientosPuntosError.message
-      );
-      throw new Error("No se pudieron revertir los movimientos de puntos.");
-    }
-  }
-  const { error: deleteTareasError } = await supabase
-    .from("ordenes_tareas_tecnicos")
-    .delete()
-    .eq("orden_id", ordenId);
+//     if (deleteMovimientosPuntosError) {
+//       console.error(
+//         "Error eliminando movimientos de puntos de la orden cancelada:",
+//         deleteMovimientosPuntosError.message
+//       );
+//       throw new Error("No se pudieron revertir los movimientos de puntos.");
+//     }
+//   }
+//   const { error: deleteTareasError } = await supabase
+//     .from("ordenes_tareas_tecnicos")
+//     .delete()
+//     .eq("orden_id", ordenId);
 
-  if (deleteTareasError) {
-    throw new Error("No se pudieron borrar las tareas de la orden.");
-  }
+//   if (deleteTareasError) {
+//     throw new Error("No se pudieron borrar las tareas de la orden.");
+//   }
 
-  const { error: deleteTecnicosError } = await supabase
-    .from("ordenes_tecnicos")
-    .delete()
-    .eq("orden_id", ordenId);
+//   const { error: deleteTecnicosError } = await supabase
+//     .from("ordenes_tecnicos")
+//     .delete()
+//     .eq("orden_id", ordenId);
 
-  if (deleteTecnicosError) {
-    throw new Error("No se pudieron borrar las asignaciones de técnicos.");
-  }
+//   if (deleteTecnicosError) {
+//     throw new Error("No se pudieron borrar las asignaciones de técnicos.");
+//   }
 
-  const { error: deleteRecordatoriosError } = await supabase
-    .from("recordatorios")
-    .delete()
-    .eq("orden_id", ordenId);
+//   const { error: deleteRecordatoriosError } = await supabase
+//     .from("recordatorios")
+//     .delete()
+//     .eq("orden_id", ordenId);
 
-  if (deleteRecordatoriosError) {
-    throw new Error("No se pudieron borrar los recordatorios de la orden.");
-  }
+//   if (deleteRecordatoriosError) {
+//     throw new Error("No se pudieron borrar los recordatorios de la orden.");
+//   }
 
-  const { error: deleteItemsError } = await supabase
-    .from("orden_items")
-    .delete()
-    .eq("orden_id", ordenId);
+//   const { error: deleteItemsError } = await supabase
+//     .from("orden_items")
+//     .delete()
+//     .eq("orden_id", ordenId);
 
-  if (deleteItemsError) {
-    throw new Error("No se pudieron borrar los items.");
-  }
+//   if (deleteItemsError) {
+//     throw new Error("No se pudieron borrar los items.");
+//   }
 
-  const { error: deleteOrdenError } = await supabase
-    .from("ordenes_trabajo")
-    .delete()
-    .eq("id", ordenId);
+//   const { error: deleteOrdenError } = await supabase
+//     .from("ordenes_trabajo")
+//     .delete()
+//     .eq("id", ordenId);
 
-  if (deleteOrdenError) {
-    throw new Error("No se pudo borrar la orden.");
-  }
+//   if (deleteOrdenError) {
+//     throw new Error("No se pudo borrar la orden.");
+//   }
 
-  return { success: true };
-}
+//   return { success: true };
+// }
 export async function cancelarYEliminarOrden(ordenId: string) {
   const supabase = await requireAdminOrRecepcion();
 

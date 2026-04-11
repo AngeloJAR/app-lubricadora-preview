@@ -1210,6 +1210,15 @@ export function OrdenForm({
 
       const formToSubmit: OrdenFormData = {
         ...form,
+        items: form.items.map((item) => ({
+          ...item,
+          cantidad: String(Number(item.cantidad || 1)),
+          precio_unitario: String(Number(item.precio_unitario || 0)),
+          total: String(
+            Number(item.cantidad || 1) *
+            Number(item.precio_unitario || 0)
+          ),
+        })),
         tecnico_id: esPreOrdenTecnico ? "" : form.tecnico_id,
         descuento_puntos: String(descuentoPuntos),
         tecnicos_ids: esPreOrdenTecnico
