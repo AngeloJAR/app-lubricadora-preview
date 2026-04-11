@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import type { OrdenConRelaciones } from "@/types";
-import { getOrdenes } from "./actions";
+import { getOrdenes, getOrdenesTecnico } from "./actions";
 import { OrdenForm } from "./orden-form";
 import { OrdenesTable } from "./ordenes-table";
 
@@ -39,7 +39,8 @@ export function OrdenesView({
         setLoading(true);
       }
 
-      const data = await getOrdenes();
+      const data =
+        rol === "tecnico" ? await getOrdenesTecnico() : await getOrdenes();
 
       if (!mountedRef.current) return;
 
@@ -60,7 +61,7 @@ export function OrdenesView({
         setLoading(false);
       }
     }
-  }, []);
+  }, [rol]);
 
   const scheduleRefresh = useCallback(() => {
     if (!mountedRef.current) return;

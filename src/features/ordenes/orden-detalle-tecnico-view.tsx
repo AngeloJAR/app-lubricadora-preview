@@ -103,7 +103,6 @@ export function OrdenDetalleTecnicoView({
       await reloadTareas();
 
       setSuccessAction("Trabajo iniciado correctamente.");
-      window.location.reload();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "No se pudo iniciar el trabajo.";
@@ -115,6 +114,10 @@ export function OrdenDetalleTecnicoView({
 
   async function handleFinalizarTrabajo() {
     try {
+      if (!todasLasTareasCompletadas) {
+        setErrorAction("Debes completar todas las tareas antes de finalizar.");
+        return;
+      }
       setLoadingAction(true);
       setErrorAction("");
       setSuccessAction("");
@@ -127,7 +130,6 @@ export function OrdenDetalleTecnicoView({
       });
 
       setSuccessAction("Trabajo finalizado correctamente.");
-      window.location.reload();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "No se pudo finalizar el trabajo.";
@@ -157,7 +159,6 @@ export function OrdenDetalleTecnicoView({
         setSuccessAction("Tarea actualizada correctamente.");
       }
 
-      window.location.reload();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "No se pudo actualizar la tarea.";
@@ -175,6 +176,7 @@ export function OrdenDetalleTecnicoView({
     <div className="grid gap-4">
       <OrdenResumenCard
         orden={orden}
+        showKilometrajeFinal
         rightContent={
           <>
             <div className="flex flex-wrap justify-end gap-2">
@@ -182,7 +184,7 @@ export function OrdenDetalleTecnicoView({
                 <button
                   type="button"
                   onClick={handleIniciarTrabajo}
-                  disabled={loadingAction || tareasTotales === 0}
+                  disabled={loadingAction || tareasTotales === 0 || tareasEnProceso > 0}
                   className="inline-flex rounded-xl bg-yellow-500 border border-yellow-300 px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
                 >
                   {loadingAction ? "Procesando..." : "Iniciar trabajo"}
@@ -227,7 +229,6 @@ export function OrdenDetalleTecnicoView({
       ) : null}
 
       <OrdenItemsCard orden={orden} />
-
       <Card title="Tareas de la orden">
         {loadingTareas ? (
           <p className="text-gray-600">Cargando tareas...</p>
@@ -239,82 +240,91 @@ export function OrdenDetalleTecnicoView({
           <p className="text-gray-600">No hay tareas registradas para esta orden.</p>
         ) : (
           <div className="grid gap-3">
-            {tareas.map((tarea) => (
-              <div
-                key={tarea.id}
-                className="rounded-2xl border border-gray-200 p-4"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="grid gap-2">
-                    <div>
-                      <p className="text-sm text-gray-500">Tipo de tarea</p>
-                      <p className="font-medium">
-                        {getTipoTareaLabel(tarea.tipo_tarea)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500">Descripción</p>
-                      <p className="font-medium">{tarea.descripcion || "-"}</p>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-2">
+            {[...tareas]
+              .sort((a, b) => {
+                const orden = {
+                  en_proceso: 0,
+                  pendiente: 1,
+                  completada: 2,
+                };
+                return orden[a.estado] - orden[b.estado];
+              })
+              .map((tarea) => (
+                <div
+                  key={tarea.id}
+                  className="rounded-2xl border border-gray-200 p-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="grid gap-2">
                       <div>
-                        <p className="text-sm text-gray-500">Hora inicio</p>
+                        <p className="text-sm text-gray-500">Tipo de tarea</p>
                         <p className="font-medium">
-                          {formatFechaHora(tarea.hora_inicio)}
+                          {getTipoTareaLabel(tarea.tipo_tarea)}
                         </p>
                       </div>
 
                       <div>
-                        <p className="text-sm text-gray-500">Hora fin</p>
-                        <p className="font-medium">
-                          {formatFechaHora(tarea.hora_fin)}
-                        </p>
+                        <p className="text-sm text-gray-500">Descripción</p>
+                        <p className="font-medium">{tarea.descripcion || "-"}</p>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <p className="text-sm text-gray-500">Hora inicio</p>
+                          <p className="font-medium">
+                            {formatFechaHora(tarea.hora_inicio)}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-sm text-gray-500">Hora fin</p>
+                          <p className="font-medium">
+                            {formatFechaHora(tarea.hora_fin)}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-2">
-                    <span
-                      className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getEstadoTareaClasses(
-                        tarea.estado
-                      )}`}
-                    >
-                      {getEstadoTareaLabel(tarea.estado)}
-                    </span>
+                    <div className="grid gap-2">
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getEstadoTareaClasses(
+                          tarea.estado
+                        )}`}
+                      >
+                        {getEstadoTareaLabel(tarea.estado)}
+                      </span>
 
-                    <div className="flex flex-wrap gap-2">
-                      {tarea.estado === "pendiente" ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleActualizarTarea(tarea.id, "en_proceso")
-                          }
-                          disabled={loadingQuickTaskId === tarea.id}
-                          className="rounded-xl bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60"
-                        >
-                          {loadingQuickTaskId === tarea.id ? "..." : "Iniciar"}
-                        </button>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {tarea.estado === "pendiente" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleActualizarTarea(tarea.id, "en_proceso")
+                            }
+                            disabled={loadingQuickTaskId === tarea.id}
+                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                          >
+                            {loadingQuickTaskId === tarea.id ? "..." : "Iniciar tarea"}
+                          </button>
+                        ) : null}
 
-                      {tarea.estado !== "completada" ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleActualizarTarea(tarea.id, "completada")
-                          }
-                          disabled={loadingQuickTaskId === tarea.id}
-                          className="rounded-xl bg-green-600 px-3 py-2 text-xs text-white disabled:opacity-60"
-                        >
-                          {loadingQuickTaskId === tarea.id ? "..." : "Completar"}
-                        </button>
-                      ) : null}
+                        {tarea.estado !== "completada" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleActualizarTarea(tarea.id, "completada")
+                            }
+                            disabled={loadingQuickTaskId === tarea.id}
+                            className="rounded-xl bg-green-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                          >
+                            {loadingQuickTaskId === tarea.id ? "..." : "Completar"}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         )}
       </Card>

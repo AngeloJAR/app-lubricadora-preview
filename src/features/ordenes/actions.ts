@@ -2399,9 +2399,9 @@ export async function getClientesForOrden(): Promise<Cliente[]> {
   return (data ?? []) as Cliente[];
 }
 
-export async function getOrdenesTecnico(
-  userId: string
-): Promise<OrdenTecnicoItem[]> {
+export async function getOrdenesTecnico(): Promise<OrdenTecnicoItem[]> {
+  const { perfil } = await getPerfilActual();
+  const userId = perfil.id;
   const supabase = await createClient();
 
   const { data: asignacionesData, error: asignacionesError } = await supabase
@@ -2852,7 +2852,34 @@ export async function deleteOrdenCancelada(ordenId: string) {
       precio_unitario: null,
     })),
   });
+  const { data: movimientosPuntos, error: movimientosPuntosError } =
+    await supabase
+      .from("cliente_puntos_movimientos")
+      .select("id, tipo, puntos")
+      .eq("orden_id", ordenId);
 
+  if (movimientosPuntosError) {
+    console.error(
+      "Error obteniendo movimientos de puntos de la orden cancelada:",
+      movimientosPuntosError.message
+    );
+    throw new Error("No se pudieron obtener los movimientos de puntos.");
+  }
+
+  if (movimientosPuntos && movimientosPuntos.length > 0) {
+    const { error: deleteMovimientosPuntosError } = await supabase
+      .from("cliente_puntos_movimientos")
+      .delete()
+      .eq("orden_id", ordenId);
+
+    if (deleteMovimientosPuntosError) {
+      console.error(
+        "Error eliminando movimientos de puntos de la orden cancelada:",
+        deleteMovimientosPuntosError.message
+      );
+      throw new Error("No se pudieron revertir los movimientos de puntos.");
+    }
+  }
   const { error: deleteTareasError } = await supabase
     .from("ordenes_tareas_tecnicos")
     .delete()
@@ -2897,6 +2924,67 @@ export async function deleteOrdenCancelada(ordenId: string) {
   if (deleteOrdenError) {
     throw new Error("No se pudo borrar la orden.");
   }
+
+  return { success: true };
+}
+export async function cancelarYEliminarOrden(ordenId: string) {
+  const supabase = await requireAdminOrRecepcion();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("No autorizado");
+  }
+
+  const { data: perfil, error: perfilError } = await supabase
+    .from("usuarios_app")
+    .select("rol, activo")
+    .eq("id", user.id)
+    .eq("activo", true)
+    .maybeSingle();
+
+  if (perfilError || !perfil) {
+    throw new Error("No autorizado");
+  }
+
+  const { data: ordenAntes, error: ordenAntesError } = await supabase
+    .from("ordenes_trabajo")
+    .select("id, estado")
+    .eq("id", ordenId)
+    .single();
+
+  if (ordenAntesError || !ordenAntes) {
+    throw new Error("No se encontró la orden.");
+  }
+
+  const validacionTransicion = validarTransicionEstadoOrden({
+    rol: perfil.rol as "admin" | "recepcion" | "tecnico",
+    estadoActual: ordenAntes.estado,
+    nuevoEstado: "cancelada",
+  });
+
+  if (!validacionTransicion.ok) {
+    throw new Error(validacionTransicion.errores.join(" | "));
+  }
+
+  const { error: updateError } = await supabase
+    .from("ordenes_trabajo")
+    .update({
+      estado: "cancelada",
+      hora_fin:
+        ordenAntes.estado === "pendiente" || ordenAntes.estado === "en_proceso"
+          ? null
+          : new Date().toISOString(),
+    })
+    .eq("id", ordenId);
+
+  if (updateError) {
+    throw new Error("No se pudo marcar la orden como cancelada.");
+  }
+
+  await deleteOrdenCancelada(ordenId);
 
   return { success: true };
 }

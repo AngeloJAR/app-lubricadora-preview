@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { deleteOrdenCancelada, updateOrdenEstado } from "./actions";
+import { cancelarYEliminarOrden, updateOrdenEstado } from "./actions";
 import {
-  ORDEN_ESTADOS,
   getEstadoClasses,
   getEstadoLabel,
   type OrdenEstado,
@@ -15,6 +14,33 @@ type OrdenEstadoSelectProps = {
   rol: "admin" | "recepcion" | "tecnico";
   onUpdated?: (nuevoEstado: OrdenEstado) => void;
 };
+
+function getEstadosDisponibles(
+  estadoActual: OrdenEstado,
+  rol: "admin" | "recepcion" | "tecnico"
+): OrdenEstado[] {
+  if (rol === "tecnico") {
+    const permitidosTecnico: Record<OrdenEstado, OrdenEstado[]> = {
+      pendiente: ["pendiente", "en_proceso"],
+      en_proceso: ["en_proceso", "completada"],
+      completada: ["completada"],
+      entregada: ["entregada"],
+      cancelada: ["cancelada"],
+    };
+
+    return permitidosTecnico[estadoActual] ?? [estadoActual];
+  }
+
+  const permitidosAdminRecepcion: Record<OrdenEstado, OrdenEstado[]> = {
+    pendiente: ["pendiente", "en_proceso", "cancelada"],
+    en_proceso: ["pendiente", "en_proceso", "completada", "cancelada"],
+    completada: ["pendiente", "en_proceso", "completada", "entregada", "cancelada"],
+    entregada: ["entregada"],
+    cancelada: ["cancelada"],
+  };
+
+  return permitidosAdminRecepcion[estadoActual] ?? [estadoActual];
+}
 
 export function OrdenEstadoSelect({
   ordenId,
@@ -31,20 +57,8 @@ export function OrdenEstadoSelect({
   }, [estadoActual]);
 
   const estadosDisponibles = useMemo(() => {
-    if (rol === "admin" || rol === "recepcion") {
-      return ORDEN_ESTADOS;
-    }
-
-    const permitidosPorEstado: Record<OrdenEstado, OrdenEstado[]> = {
-      pendiente: ["pendiente", "en_proceso"],
-      en_proceso: ["en_proceso", "completada"],
-      completada: ["completada"],
-      entregada: ["entregada"],
-      cancelada: ["cancelada"],
-    };
-
-    return permitidosPorEstado[estadoActual] ?? [estadoActual];
-  }, [rol, estadoActual]);
+    return getEstadosDisponibles(estadoActual, rol);
+  }, [estadoActual, rol]);
 
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const nuevoEstado = e.target.value as OrdenEstado;
@@ -55,31 +69,27 @@ export function OrdenEstadoSelect({
 
     setError("");
 
-    if (nuevoEstado === "cancelada") {
-      const confirmed = window.confirm(
-        "La orden se marcará como cancelada y luego se borrará permanentemente. ¿Deseas continuar?"
-      );
-
-      if (!confirmed) {
-        setEstado(estadoActual);
-        return;
-      }
-    }
-
     const estadoAnterior = estado;
     setEstado(nuevoEstado);
 
     try {
       setLoading(true);
-      console.log("CAMBIO DESDE SELECT", {
-        ordenId,
-        estadoActual: estado,
-        nuevoEstado,
-      });
-      await updateOrdenEstado(ordenId, nuevoEstado);
 
       if (nuevoEstado === "cancelada") {
-        await deleteOrdenCancelada(ordenId);
+        const confirmed = window.confirm(
+          "La orden se marcará como cancelada y se eliminará permanentemente. Esta acción no se puede deshacer. ¿Deseas continuar?"
+        );
+
+        if (!confirmed) {
+          setEstado(estadoAnterior);
+          return;
+        }
+      }
+
+      if (nuevoEstado === "cancelada") {
+        await cancelarYEliminarOrden(ordenId);
+      } else {
+        await updateOrdenEstado(ordenId, nuevoEstado);
       }
 
       onUpdated?.(nuevoEstado);
@@ -88,18 +98,22 @@ export function OrdenEstadoSelect({
 
       const message =
         err instanceof Error ? err.message : "No se pudo actualizar el estado";
+
       setError(message);
     } finally {
       setLoading(false);
     }
   }
 
+  const isSoloLectura =
+    estadoActual === "entregada" || estadoActual === "cancelada";
+
   return (
     <div className="grid gap-1">
       <select
         value={estado}
         onChange={handleChange}
-        disabled={loading}
+        disabled={loading || isSoloLectura}
         className={`rounded-lg border px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-70 ${getEstadoClasses(
           estado
         )}`}

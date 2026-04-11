@@ -113,7 +113,12 @@ export function OrdenesTable({
   const [rows, setRows] = useState<OrdenConRelaciones[]>([]);
   const [ordenCobrar, setOrdenCobrar] =
     useState<OrdenConRelaciones | null>(null);
-  const [filtro, setFiltro] = useState<FiltroOrden>("activas");
+  const [filtro, setFiltro] = useState<FiltroOrden>(
+    rol === "tecnico" ? "activas" : "activas"
+  );
+
+  const isTecnico = rol === "tecnico";
+  const isAdminView = rol === "admin" || rol === "recepcion";
 
   useEffect(() => {
     setRows(ordenes);
@@ -135,8 +140,8 @@ export function OrdenesTable({
     const copia = rows.filter((orden) => coincideConFiltro(orden, filtro));
 
     const prioridadEstado: Record<string, number> = {
-      pendiente: 0,
-      en_proceso: 1,
+      en_proceso: 0,
+      pendiente: 1,
       completada: 2,
       entregada: 3,
       cancelada: 4,
@@ -147,7 +152,7 @@ export function OrdenesTable({
       const bPre = esPreOrden(b) ? 1 : 0;
 
       if (
-        (rol === "admin" || rol === "recepcion") &&
+        isAdminView &&
         filtro !== "ocultas" &&
         filtro !== "todas" &&
         aPre !== bPre
@@ -169,17 +174,26 @@ export function OrdenesTable({
     });
 
     return copia;
-  }, [rows, filtro, rol]);
+  }, [rows, filtro, isAdminView]);
 
   function handleEstadoUpdated(
     ordenId: string,
     nuevoEstado: OrdenConRelaciones["estado"]
   ) {
-    setRows((prev) =>
-      prev.map((orden) =>
+    setRows((prev) => {
+      const updated = prev.map((orden) =>
         orden.id === ordenId ? { ...orden, estado: nuevoEstado } : orden
-      )
-    );
+      );
+
+      if (filtro === "activas") {
+        return updated.filter(
+          (orden) =>
+            orden.estado !== "entregada" && orden.estado !== "cancelada"
+        );
+      }
+
+      return updated;
+    });
   }
 
   function handleCobrar(orden: OrdenConRelaciones) {
@@ -190,15 +204,22 @@ export function OrdenesTable({
     value: FiltroOrden;
     label: string;
     count: number;
-  }> = [
-    { value: "activas", label: "Activas", count: conteos.activas },
-    { value: "pendiente", label: "Pendientes", count: conteos.pendiente },
-    { value: "en_proceso", label: "En proceso", count: conteos.en_proceso },
-    { value: "completada", label: "Completadas", count: conteos.completada },
-    { value: "pre_orden", label: "Pre-órdenes", count: conteos.pre_orden },
-    { value: "ocultas", label: "Ocultas", count: conteos.ocultas },
-    { value: "todas", label: "Todas", count: conteos.todas },
-  ];
+  }> = isTecnico
+      ? [
+        { value: "activas", label: "Activas", count: conteos.activas },
+        { value: "pendiente", label: "Pendientes", count: conteos.pendiente },
+        { value: "en_proceso", label: "En proceso", count: conteos.en_proceso },
+        { value: "completada", label: "Completadas", count: conteos.completada },
+      ]
+      : [
+        { value: "activas", label: "Activas", count: conteos.activas },
+        { value: "pendiente", label: "Pendientes", count: conteos.pendiente },
+        { value: "en_proceso", label: "En proceso", count: conteos.en_proceso },
+        { value: "completada", label: "Completadas", count: conteos.completada },
+        { value: "pre_orden", label: "Pre-órdenes", count: conteos.pre_orden },
+        { value: "ocultas", label: "Ocultas", count: conteos.ocultas },
+        { value: "todas", label: "Todas", count: conteos.todas },
+      ];
 
   return (
     <>
@@ -206,11 +227,12 @@ export function OrdenesTable({
         <div className="flex flex-col gap-3">
           <div>
             <h3 className="text-base font-semibold text-gray-900 md:text-lg">
-              Filtros de órdenes
+              {isTecnico ? "Mis órdenes" : "Filtros de órdenes"}
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              Por defecto se muestran solo las órdenes activas. Usa los filtros
-              para ver entregadas o canceladas cuando las necesites.
+              {isTecnico
+                ? "Aquí ves solo las órdenes que necesitas trabajar."
+                : "Por defecto se muestran solo las órdenes activas. Usa los filtros para ver entregadas o canceladas cuando las necesites."}
             </p>
           </div>
 
@@ -237,19 +259,17 @@ export function OrdenesTable({
                   key={item.value}
                   type="button"
                   onClick={() => setFiltro(item.value)}
-                  className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                    active
-                      ? "border-yellow-300 bg-yellow-500 text-white"
-                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                  }`}
+                  className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${active
+                    ? "border-yellow-300 bg-yellow-500 text-white"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                    }`}
                 >
                   <span>{item.label}</span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs ${
-                      active
-                        ? "bg-white/20 text-white"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
+                    className={`rounded-full px-2 py-0.5 text-xs ${active
+                      ? "bg-white/20 text-white"
+                      : "bg-gray-100 text-gray-600"
+                      }`}
                   >
                     {item.count}
                   </span>
@@ -281,13 +301,12 @@ export function OrdenesTable({
             return (
               <article
                 key={orden.id}
-                className={`overflow-hidden rounded-2xl border bg-white shadow-sm md:rounded-3xl ${
-                  ordenOculta
-                    ? "border-gray-300 opacity-90"
-                    : preOrden
+                className={`overflow-hidden rounded-2xl border bg-white shadow-sm md:rounded-3xl ${ordenOculta
+                  ? "border-gray-300 opacity-90"
+                  : preOrden
                     ? "border-blue-300 ring-1 ring-blue-100"
                     : "border-gray-200"
-                }`}
+                  }`}
               >
                 <div className="p-4 md:p-5">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -302,7 +321,7 @@ export function OrdenesTable({
                             ID: {orden.id.slice(0, 8)}
                           </span>
 
-                          {preOrden ? (
+                          {preOrden && isAdminView ? (
                             <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                               PRE-ORDEN
                             </span>
@@ -326,7 +345,10 @@ export function OrdenesTable({
                         </p>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      <div
+                        className={`grid gap-3 ${isTecnico ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 xl:grid-cols-5"
+                          }`}
+                      >
                         <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4">
                           <p className="text-xs uppercase tracking-wide text-gray-400">
                             Cliente
@@ -376,59 +398,60 @@ export function OrdenesTable({
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4">
-                          <p className="text-xs uppercase tracking-wide text-gray-400">
-                            Total
-                          </p>
-                          <p className="mt-2 text-base font-semibold text-gray-900 md:text-lg">
-                            {canViewTotales
-                              ? formatCurrency(orden.total)
-                              : "No visible"}
-                          </p>
-                        </div>
+                        {canViewTotales ? (
+                          <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4">
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Total
+                            </p>
+                            <p className="mt-2 text-base font-semibold text-gray-900 md:text-lg">
+                              {formatCurrency(orden.total)}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div
-                        className={`rounded-2xl border px-4 py-4 ${
-                          preOrden
+                      {!isTecnico ? (
+                        <div
+                          className={`rounded-2xl border px-4 py-4 ${preOrden
                             ? "border-blue-200 bg-blue-50"
                             : "border-gray-200 bg-gray-50"
-                        }`}
-                      >
-                        <p className="text-xs uppercase tracking-wide text-gray-400">
-                          Técnicos asignados
-                        </p>
+                            }`}
+                        >
+                          <p className="text-xs uppercase tracking-wide text-gray-400">
+                            Técnicos asignados
+                          </p>
 
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {orden.tecnicos && orden.tecnicos.length > 0 ? (
-                            orden.tecnicos.map((tecnico) => (
-                              <span
-                                key={tecnico.id}
-                                className={
-                                  tecnico.es_principal
-                                    ? "inline-flex max-w-full items-center gap-1 rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-xs font-medium text-yellow-800"
-                                    : "inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700"
-                                }
-                              >
-                                <span className="wrap-break-word">
-                                  {tecnico.nombre}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {orden.tecnicos && orden.tecnicos.length > 0 ? (
+                              orden.tecnicos.map((tecnico) => (
+                                <span
+                                  key={tecnico.id}
+                                  className={
+                                    tecnico.es_principal
+                                      ? "inline-flex max-w-full items-center gap-1 rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-xs font-medium text-yellow-800"
+                                      : "inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700"
+                                  }
+                                >
+                                  <span className="wrap-break-word">
+                                    {tecnico.nombre}
+                                  </span>
+                                  {tecnico.es_principal ? (
+                                    <span>⭐ Principal</span>
+                                  ) : null}
                                 </span>
-                                {tecnico.es_principal ? (
-                                  <span>⭐ Principal</span>
-                                ) : null}
+                              ))
+                            ) : preOrden ? (
+                              <span className="text-sm font-medium text-blue-700">
+                                Pre-orden sin asignación todavía
                               </span>
-                            ))
-                          ) : preOrden ? (
-                            <span className="text-sm font-medium text-blue-700">
-                              Pre-orden sin asignación todavía
-                            </span>
-                          ) : (
-                            <span className="text-sm text-gray-400">
-                              Sin técnicos asignados
-                            </span>
-                          )}
+                            ) : (
+                              <span className="text-sm text-gray-400">
+                                Sin técnicos asignados
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      ) : null}
                     </div>
 
                     <div className="grid gap-2 xl:w-52">
@@ -439,8 +462,7 @@ export function OrdenesTable({
                         Ver detalle
                       </Link>
 
-                      {orden.estado === "completada" &&
-                      (rol === "admin" || rol === "recepcion") ? (
+                      {orden.estado === "completada" && isAdminView ? (
                         <button
                           onClick={() => handleCobrar(orden)}
                           className="inline-flex min-h-11 items-center justify-center rounded-xl border border-green-300 bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
@@ -449,8 +471,7 @@ export function OrdenesTable({
                         </button>
                       ) : null}
 
-                      {preOrden &&
-                      (rol === "admin" || rol === "recepcion") ? (
+                      {preOrden && isAdminView ? (
                         <Link
                           href={`/ordenes/${orden.id}/editar`}
                           className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
@@ -472,7 +493,13 @@ export function OrdenesTable({
           open={!!ordenCobrar}
           ordenId={ordenCobrar.id}
           total={ordenCobrar.total}
-          onClose={() => setOrdenCobrar(null)}
+          onClose={(estadoFinal?: "entregada") => {
+            setOrdenCobrar(null);
+
+            if (estadoFinal === "entregada") {
+              handleEstadoUpdated(ordenCobrar.id, "entregada");
+            }
+          }}
         />
       )}
     </>

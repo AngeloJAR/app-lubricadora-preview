@@ -7,9 +7,9 @@ type MetodoPago = "efectivo" | "transferencia" | "tarjeta";
 
 type CobrarModalProps = {
   open: boolean;
-  onClose: () => void;
   ordenId: string;
   total: number;
+  onClose: (estadoFinal?: "entregada") => void;
 };
 
 export function CobrarModal({
@@ -41,8 +41,7 @@ export function CobrarModal({
         metodo_pago: metodo,
       });
 
-      onClose();
-      window.location.reload();
+      onClose("entregada");
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "No se pudo registrar el pago";
@@ -94,7 +93,7 @@ export function CobrarModal({
 
         <div className="mt-6 flex gap-2">
           <button
-            onClick={onClose}
+            onClick={() => onClose()}
             className="flex-1 rounded-xl border px-4 py-2"
           >
             Cancelar
