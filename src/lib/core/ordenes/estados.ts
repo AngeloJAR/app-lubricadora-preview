@@ -8,23 +8,26 @@ export type OrdenEstado =
 export type UsuarioRol = "admin" | "recepcion" | "tecnico";
 
 const TRANSICIONES_VALIDAS: Record<OrdenEstado, OrdenEstado[]> = {
-  pendiente: ["en_proceso", "cancelada"],
-  en_proceso: ["completada", "cancelada"],
-  completada: ["entregada", "cancelada"],
+  pendiente: ["en_proceso", "completada", "cancelada"],
+  en_proceso: ["pendiente", "completada", "cancelada"],
+  completada: ["pendiente", "en_proceso", "entregada", "cancelada"],
   entregada: [],
   cancelada: [],
 };
 
-const TRANSICIONES_POR_ROL: Record<UsuarioRol, Partial<Record<OrdenEstado, OrdenEstado[]>>> = {
+const TRANSICIONES_POR_ROL: Record<
+  UsuarioRol,
+  Partial<Record<OrdenEstado, OrdenEstado[]>>
+> = {
   admin: {
-    pendiente: ["en_proceso", "cancelada"],
-    en_proceso: ["completada", "cancelada"],
-    completada: ["entregada", "cancelada"],
+    pendiente: ["en_proceso", "completada", "cancelada"],
+    en_proceso: ["pendiente", "completada", "cancelada"],
+    completada: ["pendiente", "en_proceso", "entregada", "cancelada"],
   },
   recepcion: {
-    pendiente: ["en_proceso", "cancelada"],
+    pendiente: ["en_proceso", "completada", "cancelada"],
     en_proceso: ["completada"],
-    completada: ["entregada"],
+    completada: ["en_proceso", "entregada"],
   },
   tecnico: {
     pendiente: ["en_proceso"],
@@ -42,7 +45,9 @@ export function esEstadoOrdenValido(value: string): value is OrdenEstado {
   ].includes(value);
 }
 
-export function obtenerTransicionesValidas(estadoActual: OrdenEstado): OrdenEstado[] {
+export function obtenerTransicionesValidas(
+  estadoActual: OrdenEstado
+): OrdenEstado[] {
   return TRANSICIONES_VALIDAS[estadoActual] ?? [];
 }
 

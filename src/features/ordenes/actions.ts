@@ -1630,6 +1630,13 @@ export async function updateOrdenEstado(
     throw new Error("No se pudo validar la orden");
   }
 
+  console.log("TRANSICION ORDEN DEBUG", {
+    ordenId,
+    rol: perfil.rol,
+    estadoActual: ordenAntes.estado,
+    nuevoEstado: estado,
+    from: "updateOrdenEstado",
+  });
   const validacionTransicion = validarTransicionEstadoOrden({
     rol: perfil.rol as "admin" | "recepcion" | "tecnico",
     estadoActual: ordenAntes.estado,
@@ -1657,6 +1664,10 @@ export async function updateOrdenEstado(
   }
 
   if (estado === "pendiente") {
+    payloadUpdate.hora_fin = null;
+  }
+
+  if (estado === "en_proceso") {
     payloadUpdate.hora_fin = null;
   }
 
@@ -2250,12 +2261,24 @@ export async function updateOrden(ordenId: string, payload: OrdenFormData) {
 
   const { data: ordenActual, error: ordenActualError } = await supabase
     .from("ordenes_trabajo")
-    .select("id, numero")
+    .select("id, numero, estado")
     .eq("id", ordenId)
     .single();
 
   if (ordenActualError || !ordenActual) {
     throw new Error("No se pudo obtener la orden actual");
+  }
+
+  if (ordenActual.estado === "entregada") {
+    throw new Error("No se puede editar una orden entregada.");
+  }
+
+  if (ordenActual.estado === "cancelada") {
+    throw new Error("No se puede editar una orden cancelada.");
+  }
+
+  if (ordenActual.estado === "completada") {
+    throw new Error("No se puede editar una orden completada.");
   }
 
   const {

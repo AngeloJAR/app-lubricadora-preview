@@ -35,8 +35,15 @@ export function OrdenEstadoSelect({
       return ORDEN_ESTADOS;
     }
 
-    const permitidosTecnico: OrdenEstado[] = ["en_proceso", "completada"];
-    return Array.from(new Set([estadoActual, ...permitidosTecnico]));
+    const permitidosPorEstado: Record<OrdenEstado, OrdenEstado[]> = {
+      pendiente: ["pendiente", "en_proceso"],
+      en_proceso: ["en_proceso", "completada"],
+      completada: ["completada"],
+      entregada: ["entregada"],
+      cancelada: ["cancelada"],
+    };
+
+    return permitidosPorEstado[estadoActual] ?? [estadoActual];
   }, [rol, estadoActual]);
 
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -64,7 +71,11 @@ export function OrdenEstadoSelect({
 
     try {
       setLoading(true);
-
+      console.log("CAMBIO DESDE SELECT", {
+        ordenId,
+        estadoActual: estado,
+        nuevoEstado,
+      });
       await updateOrdenEstado(ordenId, nuevoEstado);
 
       if (nuevoEstado === "cancelada") {
