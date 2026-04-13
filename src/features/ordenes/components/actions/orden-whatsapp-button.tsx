@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { OrdenDetalle } from "@/types";
-import { buildWhatsappUrlFromOrden } from "./whatsapp";
+import { buildWhatsappUrlFromOrden } from "../../whatsapp";
 
 type OrdenWhatsappButtonProps = {
   orden: OrdenDetalle;

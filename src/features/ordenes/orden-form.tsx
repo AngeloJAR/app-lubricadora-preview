@@ -48,17 +48,48 @@ import { OrdenMensajesSection } from "@/features/ordenes/components/orden-mensaj
 
 import { OrdenItemsSection } from "@/features/ordenes/components/orden-items-section";
 
-type TecnicoOption = {
-  id: string;
-  nombre: string;
-};
 
-type ItemTipo = "servicio" | "producto";
+import {
+  OrdenEditClienteVehiculoSection,
+  OrdenEditMantenimientoSection,
+  OrdenEditTecnicosSection,
+} from "./components/edit";
 
-type ItemSearchState = {
-  servicio: string;
-  producto: string;
-};
+import {
+  buildOrdenFormToSubmit,
+  validateOrdenFormBase,
+  validateOrdenFormStock,
+} from "./domain/orden-form-validations";
+
+import {
+  buildUpdatedOrdenFormItems,
+  buildUpdatedOrdenFormItemSearches,
+  type ItemTipo,
+  type ItemSearchState,
+} from "./domain/orden-form-item-updater";
+
+import {
+  buildCambioAceiteCompletoInsert,
+  buildProductoRecordadoInsert,
+  buildQuickProductoInsert,
+  buildQuickServicioInsert,
+} from "./domain/orden-form-quick-actions";
+
+import {
+  formatCurrency,
+  formatFechaCorta,
+  getProductosSugeridosPorServicio,
+  normalizeText,
+  uniqueServiciosById,
+} from "./domain/orden-form-helpers";
+
+import type {
+  ProductoRecordadoVehiculo,
+  ProductosRecordadosVehiculoState,
+  ServicioSugerido,
+  TecnicoOption,
+} from "./domain/orden-form-types";
+
 
 const emptyItem = {
   servicio_id: "",
@@ -92,143 +123,6 @@ type OrdenFormProps = {
   modo?: "normal" | "preorden_tecnico";
 };
 
-type ServicioSugerido = {
-  servicio_id: string;
-  nombre: string;
-  veces: number;
-};
-
-type ProductoRecordadoVehiculo = {
-  producto_id: string;
-  nombre_item: string;
-  cantidad: number;
-  precio_unitario: number;
-  orden_id: string;
-  orden_numero: string;
-  fecha: string;
-};
-
-type ProductosRecordadosVehiculoState = {
-  aceite: ProductoRecordadoVehiculo | null;
-  filtro: ProductoRecordadoVehiculo | null;
-};
-
-function formatCurrency(value: number | string | null | undefined) {
-  return `$${Number(value ?? 0).toFixed(2)}`;
-}
-
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-
-function uniqueServiciosById(items: Servicio[]) {
-  const map = new Map<string, Servicio>();
-
-  for (const item of items) {
-    if (!map.has(item.id)) {
-      map.set(item.id, item);
-    }
-  }
-
-  return Array.from(map.values());
-}
-
-function formatFechaCorta(fecha?: string | null) {
-  if (!fecha) return "-";
-
-  const parsed = new Date(fecha);
-  if (Number.isNaN(parsed.getTime())) return fecha;
-
-  return new Intl.DateTimeFormat("es-EC", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(parsed);
-}
-
-
-function getProductoKeywordsByServicio(servicioNombre: string) {
-  const nombre = normalizeText(servicioNombre);
-
-  if (nombre.includes("cambio de aceite")) {
-    return [
-      "aceite",
-      "filtro",
-      "filtro aceite",
-      "arandela",
-      "empaque",
-    ];
-  }
-
-  if (nombre.includes("lavado")) {
-    return [
-      "shampoo",
-      "silicona",
-      "desengrasante",
-      "ambiental",
-      "cera",
-    ];
-  }
-
-  if (nombre.includes("alineacion") || nombre.includes("alineación")) {
-    return [];
-  }
-
-  if (nombre.includes("balanceo")) {
-    return [
-      "plomo",
-      "peso",
-      "valvula",
-      "válvula",
-    ];
-  }
-
-  if (nombre.includes("frenos")) {
-    return [
-      "pastilla",
-      "zapatas",
-      "liquido de frenos",
-      "líquido de frenos",
-      "disco",
-    ];
-  }
-
-  if (nombre.includes("radiador") || nombre.includes("coolant")) {
-    return [
-      "refrigerante",
-      "coolant",
-      "anticongelante",
-    ];
-  }
-
-  return [];
-}
-
-function getProductosSugeridosPorServicio(
-  servicioNombre: string,
-  productos: Producto[]
-) {
-  const keywords = getProductoKeywordsByServicio(servicioNombre);
-
-  if (keywords.length === 0) {
-    return [];
-  }
-
-  return productos
-    .filter((producto) => {
-      const texto = normalizeText(
-        `${producto.nombre} ${producto.marca ?? ""}`
-      );
-
-      return keywords.some((keyword) => texto.includes(normalizeText(keyword)));
-    })
-    .slice(0, 6);
-}
 
 export function OrdenForm({
   onCreated,
@@ -550,105 +444,28 @@ export function OrdenForm({
   }
 
   function updateItem(index: number, field: string, value: string) {
-    setForm((prev) => {
-      const nextItems = [...prev.items];
-      const current = { ...nextItems[index], [field]: value };
+    setForm((prev) => ({
+      ...prev,
+      items: buildUpdatedOrdenFormItems({
+        items: prev.items,
+        index,
+        field,
+        value,
+        servicios,
+        productos,
+      }),
+    }));
 
-      if (field === "tipo_item") {
-        current.servicio_id = "";
-        current.producto_id = "";
-        current.nombre_item = "";
-        current.precio_unitario = "0";
-        current.total = String(Number(current.cantidad || "0") * 0);
-      }
-
-      if (field === "servicio_id" && current.tipo_item === "servicio") {
-        const servicio = servicios.find((s) => s.id === value);
-
-        if (servicio) {
-          current.nombre_item = servicio.nombre;
-          current.precio_unitario = String(servicio.precio_base);
-          current.total = String(
-            Number(current.cantidad || "1") * Number(servicio.precio_base)
-          );
-        }
-      }
-
-      if (field === "producto_id" && current.tipo_item === "producto") {
-        const producto = productos.find((p) => p.id === value);
-
-        if (producto) {
-          current.nombre_item = producto.nombre;
-          current.precio_unitario = String(producto.precio_venta);
-
-          const cantidadActual = Number(current.cantidad || "1");
-          const stockProducto = Number(producto.stock || 0);
-          const cantidadAjustada =
-            cantidadActual > stockProducto ? stockProducto : cantidadActual;
-
-          current.cantidad = String(cantidadAjustada <= 0 ? 1 : cantidadAjustada);
-          current.total = String(
-            Number(current.cantidad || "1") * Number(producto.precio_venta)
-          );
-        }
-      }
-
-      if (field === "cantidad" || field === "precio_unitario") {
-        if (current.tipo_item === "producto" && current.producto_id) {
-          const producto = productos.find((p) => p.id === current.producto_id);
-
-          if (producto) {
-            const cantidad = Number(current.cantidad || "0");
-            if (cantidad > Number(producto.stock)) {
-              current.cantidad = String(producto.stock);
-            }
-          }
-        }
-
-        current.total = String(
-          Number(current.cantidad || "0") * Number(current.precio_unitario || "0")
-        );
-      }
-
-      nextItems[index] = current;
-
-      return {
-        ...prev,
-        items: nextItems,
-      };
-    });
-
-    if (field === "tipo_item") {
-      setItemSearches((prev) => {
-        const next = [...prev];
-        next[index] = { servicio: "", producto: "" };
-        return next;
-      });
-    }
-
-    if (field === "servicio_id") {
-      const servicio = servicios.find((s) => s.id === value);
-      setItemSearches((prev) => {
-        const next = [...prev];
-        next[index] = {
-          ...next[index],
-          servicio: servicio?.nombre ?? "",
-        };
-        return next;
-      });
-    }
-
-    if (field === "producto_id") {
-      const producto = productos.find((p) => p.id === value);
-      setItemSearches((prev) => {
-        const next = [...prev];
-        next[index] = {
-          ...next[index],
-          producto: producto?.nombre ?? "",
-        };
-        return next;
-      });
-    }
+    setItemSearches((prev) =>
+      buildUpdatedOrdenFormItemSearches({
+        itemSearches: prev,
+        index,
+        field,
+        value,
+        servicios,
+        productos,
+      })
+    );
   }
 
   function addItem() {
@@ -695,289 +512,121 @@ export function OrdenForm({
   }
 
   function addServicioRapido(servicio: Servicio) {
-    const newItem = buildServicioItem(servicio);
-
-    setForm((prev) => {
-      const hasOnlyEmptyInitialItem =
-        prev.items.length === 1 &&
-        !prev.items[0].nombre_item.trim() &&
-        !prev.items[0].servicio_id &&
-        !prev.items[0].producto_id;
-
-      return {
-        ...prev,
-        items: hasOnlyEmptyInitialItem ? [newItem] : [...prev.items, newItem],
-      };
+    const result = buildQuickServicioInsert({
+      items: form.items,
+      servicio,
     });
 
-    setItemSearches((prev) => {
-      const newSearch = {
-        servicio: servicio.nombre,
-        producto: "",
-      };
+    setForm((prev) => ({
+      ...prev,
+      items: result.nextItems,
+    }));
 
-      const hasOnlyEmptyInitialItem =
-        form.items.length === 1 &&
-        !form.items[0].nombre_item.trim() &&
-        !form.items[0].servicio_id &&
-        !form.items[0].producto_id;
+    setItemSearches((prev) =>
+      result.nextSearchesMode === "replace"
+        ? result.newSearches
+        : [...prev, ...result.newSearches]
+    );
 
-      return hasOnlyEmptyInitialItem ? [newSearch] : [...prev, newSearch];
-    });
-
-    setSuccess(`Servicio "${servicio.nombre}" agregado.`);
+    setSuccess(result.successMessage);
     setError("");
   }
 
   function addProductoDesdeSugerencia(producto: Producto) {
-    const newItem = {
-      tipo_item: "producto" as const,
-      servicio_id: "",
-      producto_id: producto.id,
-      nombre_item: producto.nombre,
-      cantidad: "1",
-      precio_unitario: String(producto.precio_venta ?? 0),
-      total: String(Number(producto.precio_venta ?? 0)),
-    };
-
-    setForm((prev) => {
-      const hasOnlyEmptyInitialItem =
-        prev.items.length === 1 &&
-        !prev.items[0].nombre_item.trim() &&
-        !prev.items[0].servicio_id &&
-        !prev.items[0].producto_id;
-
-      return {
-        ...prev,
-        items: hasOnlyEmptyInitialItem ? [newItem] : [...prev.items, newItem],
-      };
+    const result = buildQuickProductoInsert({
+      items: form.items,
+      producto,
     });
 
-    setItemSearches((prev) => {
-      const newSearch = {
-        servicio: "",
-        producto: producto.nombre,
-      };
+    setForm((prev) => ({
+      ...prev,
+      items: result.nextItems,
+    }));
 
-      const hasOnlyEmptyInitialItem =
-        form.items.length === 1 &&
-        !form.items[0].nombre_item.trim() &&
-        !form.items[0].servicio_id &&
-        !form.items[0].producto_id;
-
-      return hasOnlyEmptyInitialItem ? [newSearch] : [...prev, newSearch];
-    });
+    setItemSearches((prev) =>
+      result.nextSearchesMode === "replace"
+        ? result.newSearches
+        : [...prev, ...result.newSearches]
+    );
 
     setSuccess(`Producto "${producto.nombre}" agregado.`);
     setError("");
   }
 
   function addProductoRecordado(productoId: string) {
-    const producto = productos.find((item) => item.id === productoId);
+    const result = buildProductoRecordadoInsert({
+      items: form.items,
+      productos,
+      productoId,
+    });
 
-    if (!producto) {
-      setError("El producto recordado no está disponible en el catálogo actual.");
-      setSuccess("");
+    if (!result.ok) {
+      if ("errorMessage" in result && result.errorMessage) {
+        setError(result.errorMessage);
+        setSuccess("");
+        return;
+      }
+
+      if ("successMessage" in result && result.successMessage) {
+        setError("");
+        setSuccess(result.successMessage);
+        return;
+      }
+
       return;
     }
 
-    const yaExiste = form.items.some(
-      (item) => item.tipo_item === "producto" && item.producto_id === producto.id
+    setForm((prev) => ({
+      ...prev,
+      items: result.nextItems,
+    }));
+
+    setItemSearches((prev) =>
+      result.nextSearchesMode === "replace"
+        ? result.newSearches
+        : [...prev, ...result.newSearches]
     );
 
-    if (yaExiste) {
-      setError("");
-      setSuccess(`"${producto.nombre}" ya está agregado en la orden.`);
-      return;
-    }
-
-    const newItem = {
-      tipo_item: "producto" as const,
-      servicio_id: "",
-      producto_id: producto.id,
-      nombre_item: producto.nombre,
-      cantidad: "1",
-      precio_unitario: String(producto.precio_venta ?? 0),
-      total: String(Number(producto.precio_venta ?? 0)),
-    };
-
-    setForm((prev) => {
-      const hasOnlyEmptyInitialItem =
-        prev.items.length === 1 && isEmptyInitialItem(prev.items[0]);
-
-      return {
-        ...prev,
-        items: hasOnlyEmptyInitialItem ? [newItem] : [...prev.items, newItem],
-      };
-    });
-
-    setItemSearches((prev) => {
-      const newSearch = {
-        servicio: "",
-        producto: producto.nombre,
-      };
-
-      const hasOnlyEmptyInitialItem =
-        form.items.length === 1 && isEmptyInitialItem(form.items[0]);
-
-      return hasOnlyEmptyInitialItem ? [newSearch] : [...prev, newSearch];
-    });
-
-    setSuccess(`Producto recordado "${producto.nombre}" agregado.`);
+    setSuccess(result.successMessage);
     setError("");
   }
 
   function addCambioAceiteCompleto() {
-    const servicioCambioAceite = servicios.find((servicio) => {
-      const texto = normalizeText(
-        `${servicio.nombre} ${servicio.descripcion ?? ""} ${servicio.categoria ?? ""}`
-      );
-
-      return texto.includes("cambio de aceite");
+    const result = buildCambioAceiteCompletoInsert({
+      items: form.items,
+      servicios,
+      productos,
+      productosRecordadosVehiculo,
     });
 
-    if (!servicioCambioAceite) {
-      setError("No se encontró el servicio de cambio de aceite.");
-      setSuccess("");
+    if (!result.ok) {
+      if ("errorMessage" in result && result.errorMessage) {
+        setError(result.errorMessage);
+        setSuccess("");
+        return;
+      }
+
+      if ("successMessage" in result && result.successMessage) {
+        setError("");
+        setSuccess(result.successMessage);
+        return;
+      }
+
       return;
     }
 
-    const itemsActuales = form.items;
-    const itemsNuevos: OrdenFormData["items"] = [];
-    const busquedasNuevas: ItemSearchState[] = [];
+    setForm((prev) => ({
+      ...prev,
+      items: result.nextItems,
+    }));
 
-    const yaExisteServicio = hasServicioEnItems(
-      itemsActuales,
-      servicioCambioAceite.id
+    setItemSearches((prev) =>
+      result.nextSearchesMode === "replace"
+        ? result.newSearches
+        : [...prev, ...result.newSearches]
     );
 
-    if (!yaExisteServicio) {
-      itemsNuevos.push({
-        tipo_item: "servicio",
-        servicio_id: servicioCambioAceite.id,
-        producto_id: "",
-        nombre_item: servicioCambioAceite.nombre,
-        cantidad: "1",
-        precio_unitario: String(servicioCambioAceite.precio_base ?? 0),
-        total: String(Number(servicioCambioAceite.precio_base ?? 0)),
-      });
-
-      busquedasNuevas.push({
-        servicio: servicioCambioAceite.nombre,
-        producto: "",
-      });
-    }
-
-    if (productosRecordadosVehiculo.aceite?.producto_id) {
-      const aceite = productos.find(
-        (producto) => producto.id === productosRecordadosVehiculo.aceite?.producto_id
-      );
-
-      if (aceite && !hasProductoEnItems(itemsActuales, aceite.id)) {
-        itemsNuevos.push({
-          tipo_item: "producto",
-          servicio_id: "",
-          producto_id: aceite.id,
-          nombre_item: aceite.nombre,
-          cantidad: "1",
-          precio_unitario: String(aceite.precio_venta ?? 0),
-          total: String(Number(aceite.precio_venta ?? 0)),
-        });
-
-        busquedasNuevas.push({
-          servicio: "",
-          producto: aceite.nombre,
-        });
-      }
-    }
-
-    if (productosRecordadosVehiculo.filtro?.producto_id) {
-      const filtro = productos.find(
-        (producto) => producto.id === productosRecordadosVehiculo.filtro?.producto_id
-      );
-
-      if (filtro) {
-        const categoriaFiltro = normalizeText(filtro.categoria ?? "");
-
-        if (
-          categoriaFiltro === "filtro_aceite" &&
-          !hasProductoEnItems(itemsActuales, filtro.id)
-        ) {
-          itemsNuevos.push({
-            tipo_item: "producto",
-            servicio_id: "",
-            producto_id: filtro.id,
-            nombre_item: filtro.nombre,
-            cantidad: "1",
-            precio_unitario: String(filtro.precio_venta ?? 0),
-            total: String(Number(filtro.precio_venta ?? 0)),
-          });
-
-          busquedasNuevas.push({
-            servicio: "",
-            producto: filtro.nombre,
-          });
-        }
-      }
-    }
-
-    if (itemsNuevos.length === 0) {
-      setError("");
-      setSuccess("El cambio de aceite, aceite y filtro ya están agregados en la orden.");
-      return;
-    }
-
-    setForm((prev) => {
-      const hasOnlyEmptyInitialItem =
-        prev.items.length === 1 && isEmptyInitialItem(prev.items[0]);
-
-      return {
-        ...prev,
-        items: hasOnlyEmptyInitialItem
-          ? itemsNuevos
-          : [...prev.items, ...itemsNuevos],
-      };
-    });
-
-    setItemSearches((prev) => {
-      const hasOnlyEmptyInitialItem =
-        form.items.length === 1 && isEmptyInitialItem(form.items[0]);
-
-      return hasOnlyEmptyInitialItem
-        ? busquedasNuevas
-        : [...prev, ...busquedasNuevas];
-    });
-
-    const agregoServicio = itemsNuevos.some(
-      (item) =>
-        item.tipo_item === "servicio" &&
-        item.servicio_id === servicioCambioAceite.id
-    );
-
-    const agregoAceite = itemsNuevos.some(
-      (item) =>
-        item.tipo_item === "producto" &&
-        item.producto_id === productosRecordadosVehiculo.aceite?.producto_id
-    );
-
-    const agregoFiltro = itemsNuevos.some(
-      (item) =>
-        item.tipo_item === "producto" &&
-        item.producto_id === productosRecordadosVehiculo.filtro?.producto_id
-    );
-
-    if (agregoServicio && agregoAceite && agregoFiltro) {
-      setSuccess("Cambio de aceite cargado con servicio, aceite y filtro del historial.");
-    } else if (agregoServicio && agregoAceite) {
-      setSuccess("Cambio de aceite cargado con servicio y último aceite del historial.");
-    } else if (agregoServicio) {
-      setSuccess("Servicio de cambio de aceite agregado. Completa el aceite y filtro si hace falta.");
-    } else if (agregoAceite || agregoFiltro) {
-      setSuccess("Se agregaron productos faltantes del último cambio de aceite.");
-    } else {
-      setSuccess("No había productos nuevos para agregar.");
-    }
-
+    setSuccess(result.successMessage);
     setError("");
   }
 
@@ -1145,88 +794,29 @@ export function OrdenForm({
     setError("");
     setSuccess("");
 
-    if (!form.cliente_id) {
-      setError("Debes seleccionar un cliente.");
+    const baseValidation = validateOrdenFormBase(form, esPreOrdenTecnico);
+
+    if (!baseValidation.ok) {
+      setError(baseValidation.message);
       return;
     }
 
-    if (!form.vehiculo_id) {
-      setError("Debes seleccionar un vehículo.");
+    const stockValidation = validateOrdenFormStock(form, productos);
+
+    if (!stockValidation.ok) {
+      setError(stockValidation.message);
       return;
     }
 
-    if (!esPreOrdenTecnico && !form.tecnico_id) {
-      setError("Debes asignar un técnico.");
-      return;
-    }
-
-    if (!esPreOrdenTecnico && !(form.tecnicos_ids ?? []).length) {
-      setError("Debes seleccionar al menos un técnico asignado.");
-      return;
-    }
-
-    if (!form.items.length) {
-      setError("Debes agregar al menos un item.");
-      return;
-    }
-
-    const invalidItem = form.items.some(
-      (item) =>
-        !item.tipo_item ||
-        !item.nombre_item.trim() ||
-        !item.cantidad.trim() ||
-        Number(item.cantidad) <= 0 ||
-        !item.precio_unitario.trim() ||
-        (item.tipo_item === "servicio" && !item.servicio_id) ||
-        (item.tipo_item === "producto" && !item.producto_id)
-    );
-
-    if (invalidItem) {
-      setError("Revisa los items agregados a la orden.");
-      return;
-    }
-
-    const productoSinStock = form.items.find((item) => {
-      if (item.tipo_item !== "producto") return false;
-
-      const producto = productos.find((p) => p.id === item.producto_id);
-      if (!producto) return false;
-
-      return Number(item.cantidad || 0) > Number(producto.stock || 0);
-    });
-
-    if (productoSinStock) {
-      const producto = productos.find((p) => p.id === productoSinStock.producto_id);
-
-      setError(
-        `Stock insuficiente para ${producto?.nombre ?? productoSinStock.nombre_item
-        }. Stock actual: ${producto?.stock ?? 0}.`
-      );
-      return;
-    }
 
     try {
       setLoading(true);
 
-      const formToSubmit: OrdenFormData = {
-        ...form,
-        items: form.items.map((item) => ({
-          ...item,
-          cantidad: String(Number(item.cantidad || 1)),
-          precio_unitario: String(Number(item.precio_unitario || 0)),
-          total: String(
-            Number(item.cantidad || 1) *
-            Number(item.precio_unitario || 0)
-          ),
-        })),
-        tecnico_id: esPreOrdenTecnico ? "" : form.tecnico_id,
-        descuento_puntos: String(descuentoPuntos),
-        tecnicos_ids: esPreOrdenTecnico
-          ? []
-          : Array.from(
-            new Set([...(form.tecnicos_ids ?? []), form.tecnico_id].filter(Boolean))
-          ),
-      };
+      const formToSubmit = buildOrdenFormToSubmit({
+        form,
+        esPreOrdenTecnico,
+        descuentoPuntos,
+      });
 
       const ordenCreada = esPreOrdenTecnico
         ? await createPreOrdenTecnico(formToSubmit)

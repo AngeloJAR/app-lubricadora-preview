@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { OrdenWhatsappButton } from "./orden-whatsapp-button";
 import { RepetirOrdenButton } from "@/features/ordenes/repetir-orden-button";
 import { Card } from "@/components/ui/card";
+import {
+  OrdenPdfButton,
+  OrdenStoragePdfButton,
+  OrdenWhatsappButton,
+  PrintButton,
+} from "./components/actions";
 
 import type {
   OrdenDetalle,
@@ -231,50 +236,44 @@ export function OrdenDetalleAdminView({
 
   return (
     <div className="grid gap-4">
-      <OrdenResumenCard
-        orden={orden}
-        showTotal
-        showKilometrajeFinal
-        rightContent={
-          <>
-            {canManageOrden ? (
-              <div className="flex flex-wrap gap-2 xl:justify-end">
-                {orden.estado !== "completada" &&
-                orden.estado !== "entregada" &&
-                orden.estado !== "cancelada" ? (
-                  <Link
-                    href={`/ordenes/${orden.id}/editar`}
-                    className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm transition hover:bg-gray-50"
-                  >
-                    Editar orden
-                  </Link>
-                ) : null}
+      {canManageOrden ? (
+        <div className="flex flex-wrap gap-2">
+          {orden.estado !== "completada" &&
+            orden.estado !== "entregada" &&
+            orden.estado !== "cancelada" ? (
+            <Link
+              href={`/ordenes/${orden.id}/editar`}
+              className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm transition hover:bg-gray-50"
+            >
+              Editar orden
+            </Link>
+          ) : null}
 
-                <RepetirOrdenButton ordenId={orden.id} />
+          <RepetirOrdenButton ordenId={orden.id} />
+          <PrintButton ordenId={orden.id} />
+          <OrdenPdfButton ordenId={orden.id} />
+          <OrdenStoragePdfButton ordenId={orden.id} />
+          <OrdenWhatsappButton orden={orden} />
+        </div>
+      ) : null}
 
-                <Link
-                  href={`/ordenes/${orden.id}/imprimir`}
-                  className="inline-flex rounded-xl border border-yellow-300 bg-yellow-500 px-4 py-2 text-sm text-white transition hover:opacity-90"
-                >
-                  Imprimir / Guardar PDF
-                </Link>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <OrdenResumenCard
+          orden={orden}
+          showTotal
+          showKilometrajeFinal
+        />
 
-                <OrdenWhatsappButton orden={orden} />
-              </div>
-            ) : null}
-
-            <div className="rounded-2xl border border-gray-200 p-4">
-              <p className="mb-2 text-sm text-gray-500">Resumen de tareas</p>
-              <div className="grid gap-2 text-sm">
-                <p>Total: {tareasTotales}</p>
-                <p>Pendientes: {tareasPendientes}</p>
-                <p>En proceso: {tareasEnProceso}</p>
-                <p>Completadas: {tareasCompletadas}</p>
-              </div>
-            </div>
-          </>
-        }
-      />
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="mb-2 text-sm text-gray-500">Resumen de tareas</p>
+          <div className="grid gap-2 text-sm">
+            <p>Total: {tareasTotales}</p>
+            <p>Pendientes: {tareasPendientes}</p>
+            <p>En proceso: {tareasEnProceso}</p>
+            <p>Completadas: {tareasCompletadas}</p>
+          </div>
+        </div>
+      </div>
 
       <OrdenClienteVehiculoCards orden={orden} showLinks />
 

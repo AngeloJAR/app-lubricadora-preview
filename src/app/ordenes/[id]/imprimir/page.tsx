@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { getOrdenDetalle } from "@/features/ordenes/actions";
 import { createClient } from "@/lib/supabase/server";
-import { OrdenPdfButton } from "@/features/ordenes/orden-pdf-button";
-import { OrdenWhatsappButton } from "@/features/ordenes/orden-whatsapp-button";
+
+import {
+  OrdenPdfButton,
+  OrdenWhatsappButton,
+} from "@/features/ordenes/components/actions";
 
 type OrdenImprimirPageProps = {
   params: Promise<{

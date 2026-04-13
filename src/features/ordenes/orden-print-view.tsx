@@ -1,9 +1,12 @@
 import type { ConfiguracionTaller, OrdenDetalle } from "@/types";
 import { getEstadoLabel } from "@/utils/orden-status";
-import { OrdenWhatsappButton } from "./orden-whatsapp-button";
-import { PrintButton } from "./print-button";
+
 import { formatDate, formatMoney } from "@/features/ordenes/pdf-formatters";
 import { PDF_TEXTS } from "@/features/ordenes/pdf-texts";
+import {
+  OrdenWhatsappButton,
+  PrintButton,
+} from "./components/actions";
 
 type OrdenPrintViewProps = {
   orden: OrdenDetalle;
