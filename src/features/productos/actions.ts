@@ -59,17 +59,16 @@ function calcularCostoReal(params: {
   let costoReal = params.precioCompraSinIVA;
 
   if (params.incluyeFiltro) {
-    costoReal -= toNumber(params.costoFiltro);
+    costoReal += toNumber(params.costoFiltro);
   }
 
   if (params.incluyeAmbiental) {
-    costoReal -= toNumber(params.costoAmbiental);
+    costoReal += toNumber(params.costoAmbiental);
   }
 
   if (params.incluyeTarjeta) {
-    costoReal -= toNumber(params.costoTarjeta);
+    costoReal += toNumber(params.costoTarjeta);
   }
-
   return Math.max(0, round2(costoReal));
 }
 
@@ -472,10 +471,19 @@ export async function agregarStockProducto(
   const precioUnitario = calcularPrecioVentaSinIVA(costoReal, margenGanancia);
   calcularPrecioVentaConIVA(precioUnitario); // reservado por si luego lo muestras o guardas
   const totalEntrada = round2(cantidad * costoUnitarioConIVA);
+  const stockActual = Number(productoActual.stock ?? 0);
+  const costoActual = Number(productoActual.precio_compra ?? 0);
+
+  const nuevoStock = stockActual + cantidad;
+
+  const costoPromedio =
+    nuevoStock > 0
+      ? (stockActual * costoActual + cantidad * costoUnitarioSinIVA) / nuevoStock
+      : costoUnitarioSinIVA;
 
   const dataToUpdate = {
-    stock: Number(productoActual.stock) + cantidad,
-    precio_compra: costoUnitarioSinIVA,
+    stock: nuevoStock,
+    precio_compra: Number(costoPromedio.toFixed(4)),
     precio_venta: precioUnitario,
     costo_real: costoReal,
   };
@@ -662,26 +670,3 @@ export async function getProductosParaReposicion() {
   return data ?? [];
 }
 
-// function generarMensajeReposicion(
-//   productos: {
-//     nombre: string;
-//     stock: number;
-//   }[]
-// ) {
-//   if (productos.length === 0) {
-//     return "No necesito reposición por ahora.";
-//   }
-
-//   let mensaje = "Hola, necesito reposición de los siguientes productos:\n\n";
-
-//   for (const p of productos) {
-//     const stockActual = Number(p.stock ?? 0);
-//     const cantidadSugerida = stockActual <= 0 ? 3 : 2;
-
-//     mensaje += `• ${p.nombre} → pedir ${cantidadSugerida}\n`;
-//   }
-
-//   mensaje += "\nGracias.";
-
-//   return mensaje;
-// }

@@ -177,6 +177,44 @@ async function getCajaAbiertaInterna() {
 
   return data ?? null;
 }
+async function revertirStockCompraParcial(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  movimientosAplicados: Array<{
+    producto_id: string;
+    stock_anterior: number;
+    movimiento_id?: string | null;
+  }>
+) {
+  for (const movimiento of movimientosAplicados.reverse()) {
+    const { error: restoreError } = await supabase
+      .from("productos")
+      .update({
+        stock: movimiento.stock_anterior,
+      })
+      .eq("id", movimiento.producto_id);
+
+    if (restoreError) {
+      console.error(
+        "Error revertirStockCompraParcial restaurando producto:",
+        restoreError
+      );
+    }
+
+    if (movimiento.movimiento_id) {
+      const { error: deleteMovError } = await supabase
+        .from("producto_movimientos")
+        .delete()
+        .eq("id", movimiento.movimiento_id);
+
+      if (deleteMovError) {
+        console.error(
+          "Error revertirStockCompraParcial eliminando movimiento:",
+          deleteMovError
+        );
+      }
+    }
+  }
+}
 
 export async function getProveedores(): Promise<Proveedor[]> {
   const supabase = await createClient();
@@ -197,7 +235,7 @@ export async function getProveedores(): Promise<Proveedor[]> {
 export async function createProveedor(
   input: CrearProveedorInput
 ): Promise<Proveedor> {
-  const supabase = await createClient();
+  const { supabase } = await requireAdminOrRecepcion();
 
   const nombre = input.nombre.trim();
 
@@ -400,7 +438,7 @@ export async function createProductoAliasProveedor(params: {
 }
 
 export async function createFacturaCompra(input: CrearFacturaCompraInput) {
-  const supabase = await createClient();
+  const { supabase, user } = await requireAdminOrRecepcion();
 
   if (!input.proveedor_id) {
     throw new Error("Debes seleccionar un proveedor.");
@@ -421,7 +459,17 @@ export async function createFacturaCompra(input: CrearFacturaCompraInput) {
   const itemsNormalizados = input.items.map((item) => {
     const cantidad = toNumber(item.cantidad, 0);
     const costo_unitario = toNumber(item.costo_unitario, 0);
+    if (cantidad <= 0) {
+      throw new Error(
+        `La cantidad debe ser mayor a 0 en el item: ${item.descripcion_original || "sin descripción"}.`
+      );
+    }
 
+    if (costo_unitario < 0) {
+      throw new Error(
+        `El costo unitario no puede ser negativo en el item: ${item.descripcion_original || "sin descripción"}.`
+      );
+    }
     const unidad_compra = normalizeUnidadCompra(item.unidad_compra);
     const factor_conversion = Math.max(
       1,
@@ -547,75 +595,104 @@ export async function createFacturaCompra(input: CrearFacturaCompraInput) {
     (item) => item.producto_id && item.cantidad_base > 0
   );
 
-  for (const item of itemsConProducto) {
-    const productoId = item.producto_id!;
+  const movimientosAplicados: Array<{
+    producto_id: string;
+    stock_anterior: number;
+    movimiento_id?: string | null;
+  }> = [];
 
-    const { data: productoActual, error: productoError } = await supabase
-      .from("productos")
-      .select("id, stock")
-      .eq("id", productoId)
-      .single();
+  try {
+    for (const item of itemsConProducto) {
+      const productoId = item.producto_id!;
 
-    if (productoError || !productoActual) {
-      console.error(
-        "Error createFacturaCompra producto stock:",
-        productoError
-      );
+      const { data: productoActual, error: productoError } = await supabase
+        .from("productos")
+        .select("id, stock, precio_compra")
+        .eq("id", productoId)
+        .single();
 
-      throw new Error(
-        `No se pudo obtener el stock del producto para ${item.descripcion_original}.`
-      );
-    }
+      if (productoError || !productoActual) {
+        console.error(
+          "Error createFacturaCompra producto stock:",
+          productoError
+        );
 
-    const stockActual = toNumber(productoActual.stock, 0);
-    const cantidadBase = toNumber(item.cantidad_base, 0);
-    const subtotalItem = toNumber(item.subtotal, 0);
+        throw new Error(
+          `No se pudo obtener el stock del producto para ${item.descripcion_original}.`
+        );
+      }
 
-    const nuevoStock = stockActual + cantidadBase;
+      const stockActual = toNumber(productoActual.stock, 0);
+      const cantidadBase = toNumber(item.cantidad_base, 0);
+      const subtotalItem = toNumber(item.subtotal, 0);
 
-    const costoUnitarioBase =
-      cantidadBase > 0 ? subtotalItem / cantidadBase : 0;
+      const nuevoStock = stockActual + cantidadBase;
 
-    const { error: updateStockError } = await supabase
-      .from("productos")
-      .update({
-        stock: nuevoStock,
-        precio_compra: Number(costoUnitarioBase.toFixed(4)),
-      })
-      .eq("id", productoId);
+      const costoUnitarioBase =
+        cantidadBase > 0 ? subtotalItem / cantidadBase : 0;
 
-    if (updateStockError) {
-      console.error(
-        "Error createFacturaCompra actualizando stock:",
-        updateStockError
-      );
+      const { error: updateStockError } = await supabase
+        .from("productos")
+        .update({
+          stock: nuevoStock,
+          precio_compra: Number(costoUnitarioBase.toFixed(4)),
+        })
+        .eq("id", productoId);
 
-      throw new Error(
-        `No se pudo actualizar el stock para ${item.descripcion_original}.`
-      );
-    }
+      if (updateStockError) {
+        console.error(
+          "Error createFacturaCompra actualizando stock:",
+          updateStockError
+        );
 
-    const { error: movimientoError } = await supabase
-      .from("producto_movimientos")
-      .insert({
+        throw new Error(
+          `No se pudo actualizar el stock para ${item.descripcion_original}.`
+        );
+      }
+
+      const { data: movimientoCreado, error: movimientoError } = await supabase
+        .from("producto_movimientos")
+        .insert({
+          producto_id: productoId,
+          tipo: "entrada",
+          cantidad: cantidadBase,
+          costo_unitario: Number(costoUnitarioBase.toFixed(4)),
+          precio_unitario: 0,
+          total: subtotalItem,
+          referencia_tipo: "factura_compra",
+          referencia_id: factura.id,
+        })
+        .select("id")
+        .single();
+
+      if (movimientoError) {
+        console.error(
+          "Error createFacturaCompra movimiento producto:",
+          movimientoError
+        );
+
+        throw new Error(
+          `No se pudo registrar el movimiento de stock para ${item.descripcion_original}.`
+        );
+      }
+
+      movimientosAplicados.push({
         producto_id: productoId,
-        tipo: "entrada",
-        cantidad: cantidadBase,
-        costo_unitario: Number(costoUnitarioBase.toFixed(4)),
-        precio_unitario: 0,
-        total: subtotalItem,
+        stock_anterior: stockActual,
+        movimiento_id: movimientoCreado?.id ?? null,
       });
-
-    if (movimientoError) {
-      console.error(
-        "Error createFacturaCompra movimiento producto:",
-        movimientoError
-      );
-
-      throw new Error(
-        `No se pudo registrar el movimiento de stock para ${item.descripcion_original}.`
-      );
     }
+  } catch (error) {
+    await revertirStockCompraParcial(supabase, movimientosAplicados);
+
+    await supabase
+      .from("facturas_compra_items")
+      .delete()
+      .eq("factura_compra_id", factura.id);
+
+    await supabase.from("facturas_compra").delete().eq("id", factura.id);
+
+    throw error;
   }
 
 
@@ -921,8 +998,7 @@ export async function replaceProductoDesdeFactura(params: {
   descripcion_original: string;
   costo_unitario: number;
 }) {
-  const supabase = await createClient();
-
+  const { supabase } = await requireAdminOrRecepcion();
   if (!params.producto_id) {
     throw new Error("Debes seleccionar un producto.");
   }
@@ -978,8 +1054,7 @@ export async function createProductoDesdeFactura(params: {
   categoria: string;
   marca?: string | null;
 }) {
-  const supabase = await createClient();
-
+  const { supabase } = await requireAdminOrRecepcion();
   const nombre = params.descripcion_original.trim();
   const categoria = params.categoria.trim();
   const marca = params.marca?.trim() || null;

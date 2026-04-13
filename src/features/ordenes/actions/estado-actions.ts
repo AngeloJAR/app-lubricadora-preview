@@ -7,6 +7,12 @@ import { calcularPuntosOrden } from "@/features/clientes/fidelizacion-utils";
 import { registrarPuntosCliente } from "@/features/clientes/fidelizacion-actions";
 import type { OrdenTrabajo, OrdenItem } from "@/types";
 
+import {
+  procesarSalidaStockPorOrden,
+  procesarEntradaStockPorCancelacion,
+} from "@/features/ordenes/domain/orden-stock.service";
+
+
 export async function updateOrdenEstado(
   ordenId: string,
   estado: OrdenTrabajo["estado"]
@@ -50,6 +56,42 @@ export async function updateOrdenEstado(
 
   if (!validacionTransicion.ok) {
     throw new Error(validacionTransicion.errores.join(" | "));
+  }
+
+  const { data: itemsOrden, error: itemsError } = await supabase
+    .from("orden_items")
+    .select("tipo_item, producto_id, nombre_item, cantidad, precio_unitario")
+    .eq("orden_id", ordenId);
+
+  if (itemsError) {
+    throw new Error("No se pudieron obtener los items de la orden");
+  }
+
+  const items = itemsOrden ?? [];
+
+  const stockYaDescontado =
+    ordenAntes.estado === "completada" || ordenAntes.estado === "entregada";
+
+  const stockDebeDescontarseAhora =
+    (estado === "completada" || estado === "entregada") && !stockYaDescontado;
+
+  const stockDebeDevolverseAhora =
+    estado === "cancelada" && stockYaDescontado;
+
+  if (stockDebeDescontarseAhora) {
+    await procesarSalidaStockPorOrden({
+      supabase,
+      ordenId,
+      items,
+    });
+  }
+
+  if (stockDebeDevolverseAhora) {
+    await procesarEntradaStockPorCancelacion({
+      supabase,
+      ordenId,
+      items,
+    });
   }
 
   const payloadUpdate: Partial<OrdenTrabajo> = {
@@ -107,11 +149,6 @@ export async function updateOrdenEstado(
       .maybeSingle();
 
     if (!movimientoExistente) {
-      const { data: itemsOrden } = await supabase
-        .from("orden_items")
-        .select("*")
-        .eq("orden_id", ordenId);
-
       const puntos = calcularPuntosOrden((itemsOrden ?? []) as OrdenItem[]);
 
       if (puntos > 0) {

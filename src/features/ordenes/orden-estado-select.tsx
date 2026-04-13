@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cancelarYEliminarOrden, updateOrdenEstado } from "./actions";
-import {
+import { updateOrdenEstado } from "./actions";import {
   getEstadoClasses,
   getEstadoLabel,
   type OrdenEstado,
@@ -77,7 +76,7 @@ export function OrdenEstadoSelect({
 
       if (nuevoEstado === "cancelada") {
         const confirmed = window.confirm(
-          "La orden se eliminará permanentemente. ¿Deseas continuar?"
+          "La orden será cancelada. Podrás borrarla después solo si sigue cancelada."
         );
 
         if (!confirmed) {
@@ -85,11 +84,10 @@ export function OrdenEstadoSelect({
           return;
         }
 
-        await cancelarYEliminarOrden(ordenId);
+        await updateOrdenEstado(ordenId, nuevoEstado);
       } else {
         await updateOrdenEstado(ordenId, nuevoEstado);
       }
-
       onUpdated?.(nuevoEstado);
     } catch (err) {
       setEstado(estadoAnterior);

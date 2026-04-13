@@ -3,20 +3,17 @@
 import { validarTransicionEstadoOrden } from "@/features/ordenes/domain/orden.service";
 import { construirTotalesOrdenDesdePayload } from "@/features/ordenes/domain/orden-payload";
 import {
-  procesarSalidaStockPorOrden,
-  procesarEntradaStockPorCancelacion,
+
 } from "@/features/ordenes/domain/orden-stock.service";
-import { puedeEliminarOrdenCancelada } from "@/lib/core/ordenes/estados";
+
 
 
 import { createClient } from "@/lib/supabase/server";
 import { getTareasSugeridasPorServicio } from "./constants";
 import { calcularPuntosOrden } from "@/features/clientes/fidelizacion-utils";
 import { registrarPuntosCliente } from "@/features/clientes/fidelizacion-actions";
-import { canjearPuntosCliente } from "@/features/clientes/fidelizacion-actions";
-import { calcularDescuentoPorPuntos } from "@/features/clientes/fidelizacion-reglas";
 
-import { registrarAuditoriaLog } from "@/lib/core/auditoria/logs";
+import { calcularDescuentoPorPuntos } from "@/features/clientes/fidelizacion-reglas";
 
 import { updateOrdenEstado as updateOrdenEstadoAction } from "./actions/estado-actions";
 

@@ -117,6 +117,37 @@ type ServicioRentabilidadRow = {
   total: number | null;
 };
 
+type ServicioTopRow = {
+  nombre_item: string;
+  total: number | null;
+  ordenes_trabajo:
+  | {
+    estado: string | null;
+  }
+  | {
+    estado: string | null;
+  }[]
+  | null;
+};
+
+type ProductoRentablePeriodoRow = {
+  producto_id: string | null;
+  cantidad: number | null;
+  costo_unitario: number | null;
+  precio_unitario: number | null;
+  created_at: string | null;
+  productos:
+  | {
+    id: string;
+    nombre: string;
+  }
+  | {
+    id: string;
+    nombre: string;
+  }[]
+  | null;
+};
+
 type ClienteInactivoRow = {
   id: string;
   nombres: string;
@@ -747,17 +778,17 @@ export async function getDashboardMetricas(
 
     supabase
       .from("ordenes_trabajo")
-      .select("total")
+      .select("id, total")
       .in("estado", ["completada", "entregada"])
-      .gte("created_at", rangePeriodo.start)
-      .lte("created_at", rangePeriodo.end),
+      .gte("fecha", startPeriodo)
+      .lte("fecha", endPeriodo),
 
     supabase
       .from("ordenes_trabajo")
-      .select("total")
+      .select("id, total")
       .in("estado", ["completada", "entregada"])
-      .gte("created_at", rangeMes.start)
-      .lte("created_at", rangeMes.end),
+      .gte("fecha", startMes)
+      .lte("fecha", endMes),
 
     supabase
       .from("producto_movimientos")
@@ -870,8 +901,15 @@ export async function getDashboardMetricas(
 
   const ordenesAbiertas = ordenesAbiertasResponse.count ?? 0;
 
-  const ventasPeriodoRows = (ventasPeriodoResponse.data ?? []) as VentaTotalRow[];
-  const ventasMesRows = (ventasMesResponse.data ?? []) as VentaTotalRow[];
+  const ventasPeriodoRows = (ventasPeriodoResponse.data ?? []) as {
+    id: string;
+    total: number | null;
+  }[];
+
+  const ventasMesRows = (ventasMesResponse.data ?? []) as {
+    id: string;
+    total: number | null;
+  }[];
 
   const movimientosPeriodo = (movimientosPeriodoResponse.data ??
     []) as MovimientoCostoRow[];
@@ -936,7 +974,8 @@ export async function getDashboardMetricas(
 
   const gastosFijosMes = sumBy(
     gastosMes.filter(
-      (item) => item.tipo_gasto === "fijo" && isNaturalezaOperativa(item.naturaleza)
+      (item) =>
+        item.tipo_gasto === "fijo" && isNaturalezaOperativa(item.naturaleza)
     ),
     (item) => toNumber(item.monto)
   );
@@ -985,7 +1024,13 @@ export async function getServiciosTop(): Promise<DashboardServicioTop[]> {
 
   const { data, error } = await supabase
     .from("orden_items")
-    .select("nombre_item, total")
+    .select(`
+      nombre_item,
+      total,
+      ordenes_trabajo (
+        estado
+      )
+    `)
     .eq("tipo_item", "servicio");
 
   if (error) {
@@ -993,7 +1038,7 @@ export async function getServiciosTop(): Promise<DashboardServicioTop[]> {
     throw new Error("No se pudieron cargar los servicios más vendidos");
   }
 
-  const rows = (data ?? []) as ServicioRentabilidadRow[];
+  const rows = (data ?? []) as ServicioTopRow[];
 
   const grouped = new Map<
     string,
@@ -1005,6 +1050,12 @@ export async function getServiciosTop(): Promise<DashboardServicioTop[]> {
   >();
 
   for (const item of rows) {
+    const orden = normalizeRelation(item.ordenes_trabajo);
+
+    if (!orden || orden.estado === "cancelada") {
+      continue;
+    }
+
     const nombre = item.nombre_item ?? "Servicio";
     const total = Number(item.total ?? 0);
     const existente = grouped.get(nombre);
@@ -1105,8 +1156,11 @@ export async function marcarMantenimientoRealizado(ordenId: string) {
   return { success: true };
 }
 
-export async function getProductosRentables(): Promise<DashboardProductoRentable[]> {
+export async function getProductosRentables(
+  periodo: DashboardPeriodo = "30d"
+): Promise<DashboardProductoRentable[]> {
   const supabase = await createClient();
+  const range = getDashboardRange(periodo);
 
   const { data, error } = await supabase
     .from("producto_movimientos")
@@ -1115,12 +1169,16 @@ export async function getProductosRentables(): Promise<DashboardProductoRentable
       cantidad,
       costo_unitario,
       precio_unitario,
+      created_at,
       productos (
         id,
         nombre
       )
     `)
     .eq("tipo", "salida")
+    .gte("created_at", range.start)
+    .lte("created_at", range.end)
+    .not("producto_id", "is", null)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1128,11 +1186,13 @@ export async function getProductosRentables(): Promise<DashboardProductoRentable
     throw new Error("No se pudieron cargar los productos rentables");
   }
 
-  const rows = (data ?? []) as ProductoRentableMovimientoRow[];
+  const rows = (data ?? []) as ProductoRentablePeriodoRow[];
 
   const grouped = new Map<string, DashboardProductoRentable>();
 
   for (const item of rows) {
+    if (!item.producto_id) continue;
+
     const producto = normalizeRelation(item.productos);
     const productoId = item.producto_id;
     const nombre = producto?.nombre ?? "Producto";
@@ -1178,7 +1238,7 @@ export async function getDashboardAlertas(
 ): Promise<DashboardAlerta[]> {
   const [metricas, productosRentables, alertasStock] = await Promise.all([
     getDashboardMetricas(periodo),
-    getProductosRentables(),
+    getProductosRentables(periodo),
     getAlertasStock(),
   ]);
 
@@ -1257,7 +1317,7 @@ export async function getDashboardAccionesSugeridas(
 ): Promise<DashboardAccionSugerida[]> {
   const [metricas, productosRentables] = await Promise.all([
     getDashboardMetricas(periodo),
-    getProductosRentables(),
+    getProductosRentables(periodo),
   ]);
 
   const acciones: DashboardAccionSugerida[] = [];
@@ -1354,14 +1414,14 @@ export async function getDashboardSerieFinanciera(
   const [ventasResponse, costosResponse, gastosResponse] = await Promise.all([
     supabase
       .from("ordenes_trabajo")
-      .select("fecha, total")
-      .neq("estado", "cancelada")
+      .select("fecha, total, estado")
+      .in("estado", ["completada", "entregada"])
       .gte("fecha", range.startDate)
       .lte("fecha", range.endDate),
 
     supabase
       .from("producto_movimientos")
-      .select("created_at, cantidad, costo_unitario")
+      .select("created_at, cantidad, costo_unitario, total")
       .eq("tipo", "salida")
       .gte("created_at", range.start)
       .lte("created_at", range.end),
@@ -1418,13 +1478,16 @@ export async function getDashboardSerieFinanciera(
     }
   }
 
-  for (const item of costosResponse.data ?? []) {
-    const fecha = String(item.created_at).split("T")[0];
+  for (const item of (costosResponse.data ?? []) as MovimientoCostoRow[]) {
+    const fecha = String((item as { created_at?: string | null }).created_at).split("T")[0];
     const actual = base.get(fecha);
 
     if (actual) {
+      const total = Number(item.total ?? 0);
       actual.costos +=
-        Number(item.cantidad ?? 0) * Number(item.costo_unitario ?? 0);
+        total > 0
+          ? total
+          : Number(item.cantidad ?? 0) * Number(item.costo_unitario ?? 0);
     }
   }
 
