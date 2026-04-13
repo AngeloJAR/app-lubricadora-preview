@@ -911,6 +911,34 @@ export async function getDashboardMetricas(
     total: number | null;
   }[];
 
+  const [ingresosPeriodoCajaResponse, ingresosMesCajaResponse] = await Promise.all([
+    supabase
+      .from("caja_movimientos")
+      .select("monto")
+      .eq("tipo", "ingreso")
+      .in("naturaleza", ["ingreso_operativo", "orden", "venta"])
+      .gte("created_at", `${startPeriodo}T00:00:00`)
+      .lte("created_at", `${endPeriodo}T23:59:59`),
+
+    supabase
+      .from("caja_movimientos")
+      .select("monto")
+      .eq("tipo", "ingreso")
+      .in("naturaleza", ["ingreso_operativo", "orden", "venta"])
+      .gte("created_at", `${startMes}T00:00:00`)
+      .lte("created_at", `${endMes}T23:59:59`),
+  ]);
+
+  if (ingresosPeriodoCajaResponse.error) {
+    console.error("Error ingresos caja período:", ingresosPeriodoCajaResponse.error);
+    throw new Error("No se pudieron obtener los ingresos reales del período");
+  }
+
+  if (ingresosMesCajaResponse.error) {
+    console.error("Error ingresos caja mes:", ingresosMesCajaResponse.error);
+    throw new Error("No se pudieron obtener los ingresos reales del mes");
+  }
+
   const movimientosPeriodo = (movimientosPeriodoResponse.data ??
     []) as MovimientoCostoRow[];
   const movimientosMes = (movimientosMesResponse.data ??
@@ -927,8 +955,15 @@ export async function getDashboardMetricas(
   const pagosProveedorMes = (pagosProveedorMesResponse.data ??
     []) as GastoMontoRow[];
 
-  const ventasPeriodo = sumBy(ventasPeriodoRows, (item) => toNumber(item.total));
-  const ventasMes = sumBy(ventasMesRows, (item) => toNumber(item.total));
+  const ventasPeriodo = sumBy(
+    (ingresosPeriodoCajaResponse.data ?? []) as Array<{ monto: number | null }>,
+    (item) => toNumber(item.monto)
+  );
+
+  const ventasMes = sumBy(
+    (ingresosMesCajaResponse.data ?? []) as Array<{ monto: number | null }>,
+    (item) => toNumber(item.monto)
+  );
 
   const costosPeriodo = sumBy(movimientosPeriodo, (item) => {
     const total = toNumber(item.total);
@@ -984,11 +1019,10 @@ export async function getDashboardMetricas(
     ventasPeriodo -
     costosPeriodo -
     gastosTotalPeriodo -
-    pagosTotalPeriodo -
-    pagosProveedorTotalPeriodo;
+    pagosTotalPeriodo;
 
   const utilidadMes =
-    ventasMes - costosMes - gastosTotalMes - pagosTotalMes - pagosProveedorTotalMes;
+    ventasMes - costosMes - gastosTotalMes - pagosTotalMes;
 
   const margenPeriodo = calcMargen(ventasPeriodo, utilidadPeriodo);
   const margenMes = calcMargen(ventasMes, utilidadMes);
@@ -1003,13 +1037,13 @@ export async function getDashboardMetricas(
     ventas_hoy: ventasPeriodo,
     costos_hoy: costosPeriodo,
     gastos_hoy:
-      gastosTotalPeriodo + pagosTotalPeriodo + pagosProveedorTotalPeriodo,
+      gastosTotalPeriodo + pagosTotalPeriodo,
     utilidad_hoy: utilidadPeriodo,
     margen_hoy: margenPeriodo,
 
     ventas_mes: ventasMes,
     costos_mes: costosMes,
-    gastos_mes: gastosTotalMes + pagosTotalMes + pagosProveedorTotalMes,
+    gastos_mes: gastosTotalMes + pagosTotalMes,
     utilidad_mes: utilidadMes,
     margen_mes: margenMes,
 

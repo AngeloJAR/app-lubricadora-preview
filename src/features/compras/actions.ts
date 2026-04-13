@@ -892,7 +892,16 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
       );
     }
   }
+  const { data: pagoReciente } = await supabase
+    .from("pagos_proveedor")
+    .select("id, monto, created_at")
+    .eq("factura_compra_id", input.factura_compra_id)
+    .gte("created_at", new Date(Date.now() - 5000).toISOString())
+    .maybeSingle();
 
+  if (pagoReciente && Number(pagoReciente.monto) === monto) {
+    throw new Error("Posible pago duplicado detectado");
+  }
   const { data: pago, error: pagoError } = await supabase
     .from("pagos_proveedor")
     .insert({

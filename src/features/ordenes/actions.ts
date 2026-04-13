@@ -2387,7 +2387,24 @@ export async function cancelarYEliminarOrden(ordenId: string) {
   if (ordenAntesError || !ordenAntes) {
     throw new Error("No se encontró la orden.");
   }
+  const { data: pagosOrden, error: pagosOrdenError } = await supabase
+    .from("orden_pagos")
+    .select("id, monto")
+    .eq("orden_id", ordenId);
 
+  if (pagosOrdenError) {
+    console.error("Error validando pagos de la orden antes de cancelar:", pagosOrdenError.message);
+    throw new Error("No se pudieron validar los pagos de la orden.");
+  }
+
+  const totalPagado =
+    (pagosOrden ?? []).reduce((acc, pago) => acc + Number(pago.monto ?? 0), 0);
+
+  if (totalPagado > 0) {
+    throw new Error(
+      "La orden ya tiene pagos registrados. Primero debes revertir o gestionar esos pagos antes de cancelarla."
+    );
+  }
   const validacionTransicion = validarTransicionEstadoOrden({
     rol: perfil.rol as "admin" | "recepcion" | "tecnico",
     estadoActual: ordenAntes.estado,
@@ -2513,7 +2530,7 @@ export async function registrarPagoOrden({
   const esAbono = monto < saldoPendiente;
   const categoriaMovimiento = esAbono ? "abono_orden" : "orden";
 
-  const { error: pagoError } = await supabase
+  const { data: pagoRegistrado, error: pagoError } = await supabase
     .from("orden_pagos")
     .insert({
       orden_id: ordenId,
@@ -2525,11 +2542,13 @@ export async function registrarPagoOrden({
       origen_fondo: "negocio",
       naturaleza: "ingreso_operativo",
       observacion: `Cobro de orden ${orden.numero}`,
-    });
+    })
+    .select("id")
+    .single();
 
-  if (pagoError) {
+  if (pagoError || !pagoRegistrado) {
     console.error("ERROR PAGO:", pagoError);
-    throw new Error(pagoError.message);
+    throw new Error(pagoError?.message || "No se pudo registrar el pago");
   }
 
   const { error: movError } = await supabase
@@ -2540,8 +2559,8 @@ export async function registrarPagoOrden({
       categoria: categoriaMovimiento,
       monto,
       descripcion: `Pago orden ${orden.numero}`,
-      referencia_tipo: "orden",
-      referencia_id: ordenId,
+      referencia_tipo: "orden_pago",
+      referencia_id: pagoRegistrado.id,
       metodo_pago,
       cuenta,
       origen_fondo: "negocio",
@@ -2551,6 +2570,9 @@ export async function registrarPagoOrden({
 
   if (movError) {
     console.error("ERROR MOVIMIENTO CAJA:", movError);
+
+    await supabase.from("orden_pagos").delete().eq("id", pagoRegistrado.id);
+
     throw new Error("Error registrando en caja");
   }
 

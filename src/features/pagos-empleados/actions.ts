@@ -27,6 +27,25 @@ async function requireAdmin() {
 
   return { supabase, user };
 }
+async function getCajaAbiertaId(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const { data, error } = await supabase
+    .from("cajas")
+    .select("id")
+    .eq("estado", "abierta")
+    .order("fecha_apertura", { ascending: false })
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error obteniendo caja abierta para pago de empleado:", error.message);
+    throw new Error("No se pudo validar la caja abierta");
+  }
+
+  if (!data?.id) {
+    throw new Error("No hay una caja abierta");
+  }
+
+  return data.id as string;
+}
 
 export async function getEmpleadosActivos() {
   const { supabase } = await requireAdmin();
@@ -51,12 +70,12 @@ export async function getPagosEmpleados(filters?: {
   to?: string;
   empleado_id?: string;
   tipo_pago?:
-    | "todos"
-    | "sueldo"
-    | "anticipo"
-    | "bono"
-    | "comision"
-    | "descuento";
+  | "todos"
+  | "sueldo"
+  | "anticipo"
+  | "bono"
+  | "comision"
+  | "descuento";
 }): Promise<PagoEmpleado[]> {
   const { supabase } = await requireAdmin();
 
@@ -101,7 +120,7 @@ export async function getPagosEmpleados(filters?: {
 }
 
 export async function createPagoEmpleado(payload: PagoEmpleadoFormData) {
-  const { supabase } = await requireAdmin();
+  const { supabase, user } = await requireAdmin();
 
   const empleado_id = payload.empleado_id.trim();
   const tipo_pago = payload.tipo_pago;
@@ -129,6 +148,8 @@ export async function createPagoEmpleado(payload: PagoEmpleadoFormData) {
     throw new Error("La fecha de pago es obligatoria");
   }
 
+  const cajaId = await getCajaAbiertaId(supabase);
+
   const { data, error } = await supabase
     .from("empleados_pagos")
     .insert([
@@ -144,18 +165,49 @@ export async function createPagoEmpleado(payload: PagoEmpleadoFormData) {
     ])
     .select(`
       *,
-      usuarios_app:empleado_id (
-        id,
-        nombre,
-        email,
-        rol
-      )
+      usuarios_app:empleado_id ( id, nombre, email, rol )
     `)
     .single();
 
-  if (error) {
-    console.error("Error al registrar pago de empleado:", error.message);
+  if (error || !data) {
+    console.error("Error al registrar pago de empleado:", error?.message);
     throw new Error("No se pudo registrar el pago del empleado");
+  }
+
+  const nombreEmpleado =
+    (data as PagoEmpleado & {
+      usuarios_app?: { nombre?: string | null } | null;
+    }).usuarios_app?.nombre?.trim() || "empleado";
+
+  const { error: movimientoError } = await supabase
+    .from("caja_movimientos")
+    .insert({
+      caja_id: cajaId,
+      tipo: "egreso",
+      categoria: "pago_empleado",
+      monto,
+      descripcion: `Pago de ${tipo_pago} a ${nombreEmpleado}`,
+      cuenta: "caja",
+      origen_fondo: "negocio",
+      naturaleza: "gasto_operativo",
+      metodo_pago: "efectivo",
+      creado_por: user.id,
+      referencia_tipo: "empleado_pago",
+      referencia_id: data.id,
+      fecha: fecha_pago,
+    });
+
+  if (movimientoError) {
+    console.error("Error registrando movimiento de caja por pago de empleado:", {
+      message: movimientoError.message,
+      details: movimientoError.details,
+      hint: movimientoError.hint,
+      code: movimientoError.code,
+    });
+
+    await supabase.from("empleados_pagos").delete().eq("id", data.id);
+
+    throw new Error("No se pudo registrar la salida en caja del pago del empleado");
   }
 
   return data as PagoEmpleado;
@@ -163,6 +215,17 @@ export async function createPagoEmpleado(payload: PagoEmpleadoFormData) {
 
 export async function deletePagoEmpleado(pagoId: string) {
   const { supabase } = await requireAdmin();
+
+  const { error: movimientoError } = await supabase
+    .from("caja_movimientos")
+    .delete()
+    .eq("referencia_tipo", "empleado_pago")
+    .eq("referencia_id", pagoId);
+
+  if (movimientoError) {
+    console.error("Error al eliminar movimiento de caja del pago de empleado:", movimientoError.message);
+    throw new Error("No se pudo eliminar el movimiento de caja del pago del empleado");
+  }
 
   const { error } = await supabase
     .from("empleados_pagos")

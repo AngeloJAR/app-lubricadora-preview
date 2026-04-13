@@ -195,6 +195,8 @@ export async function registrarMovimientoCaja(
 
       metodo_pago: payload.metodo_pago,
       creado_por: user.id,
+      referencia_tipo: "manual",
+      referencia_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     })
     .select()
     .single();
@@ -250,7 +252,12 @@ export async function transferirCajaABoveda(
   const descripcionBase =
     descripcionInput?.trim() || "Transferencia de caja a bóveda";
 
-  const { error: errorEgresoCaja } = await supabase
+  const referenciaTransferencia =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `transferencia-${Date.now()}`;
+
+  const { data: egresoCaja, error: errorEgresoCaja } = await supabase
     .from("caja_movimientos")
     .insert({
       caja_id: cajaAbierta.id,
@@ -263,14 +270,18 @@ export async function transferirCajaABoveda(
       naturaleza: "transferencia_interna",
       metodo_pago: "efectivo",
       creado_por: user.id,
-    });
+      referencia_tipo: "transferencia_interna",
+      referencia_id: referenciaTransferencia,
+    })
+    .select("id")
+    .single();
 
-  if (errorEgresoCaja) {
+  if (errorEgresoCaja || !egresoCaja) {
     console.error("Error registrando egreso de caja:", {
-      message: errorEgresoCaja.message,
-      details: errorEgresoCaja.details,
-      hint: errorEgresoCaja.hint,
-      code: errorEgresoCaja.code,
+      message: errorEgresoCaja?.message,
+      details: errorEgresoCaja?.details,
+      hint: errorEgresoCaja?.hint,
+      code: errorEgresoCaja?.code,
     });
     throw new Error("No se pudo registrar la salida de caja");
   }
@@ -288,6 +299,8 @@ export async function transferirCajaABoveda(
       naturaleza: "transferencia_interna",
       metodo_pago: "efectivo",
       creado_por: user.id,
+      referencia_tipo: "transferencia_interna",
+      referencia_id: referenciaTransferencia,
     });
 
   if (errorIngresoBoveda) {
@@ -297,6 +310,8 @@ export async function transferirCajaABoveda(
       hint: errorIngresoBoveda.hint,
       code: errorIngresoBoveda.code,
     });
+
+    await supabase.from("caja_movimientos").delete().eq("id", egresoCaja.id);
 
     throw new Error("No se pudo registrar el ingreso en bóveda");
   }

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { Gasto, GastoFormData } from "@/types";
+import { revalidatePath } from "next/cache";
 
 type GetGastosFilters = {
   from?: string;
@@ -9,12 +10,12 @@ type GetGastosFilters = {
   tipo_gasto?: "fijo" | "variable" | "todos";
   ambito?: "negocio" | "personal" | "todos";
   metodo_pago?:
-    | "efectivo"
-    | "transferencia"
-    | "deuna"
-    | "tarjeta"
-    | "otro"
-    | "todos";
+  | "efectivo"
+  | "transferencia"
+  | "deuna"
+  | "tarjeta"
+  | "otro"
+  | "todos";
   afecta_caja?: "si" | "no" | "todos";
 };
 
@@ -216,6 +217,9 @@ export async function createGasto(payload: GastoFormData) {
         monto,
         descripcion: descripcionCaja || categoria,
         metodo_pago,
+        cuenta: metodo_pago === "efectivo" ? "caja" : metodo_pago === "deuna" ? "deuna" : "banco",
+        origen_fondo: "negocio",
+        naturaleza: ambito === "negocio" ? "gasto_operativo" : "retiro_dueno",
         creado_por: user.id,
       });
 
@@ -237,7 +241,7 @@ export async function createGasto(payload: GastoFormData) {
 }
 
 export async function deleteGasto(gastoId: string) {
-  const { supabase } = await requireAdminOrRecepcion();
+  const supabase = await createClient();
 
   const { error: movimientoError } = await supabase
     .from("caja_movimientos")
@@ -245,19 +249,22 @@ export async function deleteGasto(gastoId: string) {
     .eq("gasto_id", gastoId);
 
   if (movimientoError) {
-    console.error(
-      "Error al eliminar movimiento de caja del gasto:",
-      movimientoError.message
-    );
-    throw new Error("No se pudo eliminar el movimiento relacionado en caja");
+    console.error("Error eliminando movimiento de caja:", movimientoError);
+    throw new Error("No se pudo eliminar el movimiento de caja del gasto");
   }
 
-  const { error } = await supabase.from("gastos").delete().eq("id", gastoId);
+  const { error: gastoError } = await supabase
+    .from("gastos")
+    .delete()
+    .eq("id", gastoId);
 
-  if (error) {
-    console.error("Error al eliminar gasto:", error.message);
+  if (gastoError) {
+    console.error("Error eliminando gasto:", gastoError);
     throw new Error("No se pudo eliminar el gasto");
   }
+
+  revalidatePath("/gastos");
+  revalidatePath("/caja");
 
   return { success: true };
 }
