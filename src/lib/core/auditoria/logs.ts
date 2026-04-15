@@ -16,7 +16,7 @@ export type AuditoriaLogInput = {
   datos_despues?: any;
 };
 
-export async function registrarAuditoriaLog(input: AuditoriaLogInput) {
+export function registrarAuditoriaLog(input: AuditoriaLogInput) {
   const {
     supabase,
     usuario_id,
@@ -28,20 +28,26 @@ export async function registrarAuditoriaLog(input: AuditoriaLogInput) {
     datos_despues,
   } = input;
 
-  const { error } = await supabase.from("auditoria_logs").insert([
-    {
-      usuario_id: usuario_id ?? null,
-      entidad,
-      entidad_id,
-      accion,
-      descripcion: descripcion ?? null,
-      datos_antes: datos_antes ?? null,
-      datos_despues: datos_despues ?? null,
-      created_at: new Date().toISOString(),
-    },
-  ]);
-
-  if (error) {
-    console.error("Error registrando auditoría:", error.message);
-  }
+  supabase
+    .from("auditoria_logs")
+    .insert([
+      {
+        usuario_id: usuario_id ?? null,
+        entidad,
+        entidad_id,
+        accion,
+        descripcion: descripcion ?? null,
+        datos_antes: datos_antes ?? null,
+        datos_despues: datos_despues ?? null,
+        created_at: new Date().toISOString(),
+      },
+    ])
+    .then(({ error }) => {
+      if (error) {
+        console.error("Error registrando auditoría:", error.message);
+      }
+    })
+    .catch((err) => {
+      console.error("Error inesperado en auditoría:", err);
+    });
 }

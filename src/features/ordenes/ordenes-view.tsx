@@ -24,7 +24,7 @@ export function OrdenesView({
   const [error, setError] = useState("");
 
   const mountedRef = useRef(true);
-
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const supabase = useMemo(() => createClient(), []);
 
   const loadOrdenes = useCallback(async () => {
@@ -53,12 +53,28 @@ export function OrdenesView({
     }
   }, [rol]);
 
+  const scheduleLoadOrdenes = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    if (refreshTimeoutRef.current) return;
+
+    refreshTimeoutRef.current = setTimeout(async () => {
+      refreshTimeoutRef.current = null;
+      await loadOrdenes();
+    }, 1200);
+  }, [loadOrdenes]);
+
   useEffect(() => {
     mountedRef.current = true;
     loadOrdenes();
 
     return () => {
       mountedRef.current = false;
+
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
     };
   }, [loadOrdenes]);
 
@@ -72,9 +88,8 @@ export function OrdenesView({
           schema: "public",
           table: "ordenes_trabajo",
         },
-        async () => {
-          if (!mountedRef.current) return;
-          await loadOrdenes();
+        () => {
+          scheduleLoadOrdenes();
         }
       )
       .on(
@@ -84,10 +99,9 @@ export function OrdenesView({
           schema: "public",
           table: "ordenes_tareas_tecnicos",
         },
-        async () => {
-          if (!mountedRef.current) return;
+        () => {
           if (rol === "tecnico") {
-            await loadOrdenes();
+            scheduleLoadOrdenes();
           }
         }
       )
@@ -98,9 +112,8 @@ export function OrdenesView({
           schema: "public",
           table: "ordenes_tecnicos",
         },
-        async () => {
-          if (!mountedRef.current) return;
-          await loadOrdenes();
+        () => {
+          scheduleLoadOrdenes();
         }
       )
       .subscribe();
@@ -108,7 +121,7 @@ export function OrdenesView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase, rol, loadOrdenes]);
+  }, [supabase, rol, scheduleLoadOrdenes]);
 
   async function handleCreated(nuevaOrden?: OrdenConRelaciones | null) {
     if (nuevaOrden && mountedRef.current) {

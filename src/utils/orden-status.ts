@@ -1,12 +1,12 @@
-export const ORDEN_ESTADOS = [
+import type { OrdenEstado } from "@/lib/core/ordenes/reglas";
+
+export const ORDEN_ESTADOS: OrdenEstado[] = [
   "pendiente",
   "en_proceso",
   "completada",
   "entregada",
   "cancelada",
-] as const;
-
-export type OrdenEstado = (typeof ORDEN_ESTADOS)[number];
+];
 
 export function getEstadoLabel(estado: OrdenEstado) {
   switch (estado) {

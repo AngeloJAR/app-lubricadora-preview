@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import type { Gasto } from "@/types";
 import { getGastos } from "./actions";
 import { GastoForm } from "./gasto-form";
 import { GastosTable } from "./gastos-table";
+import { useCallback, useEffect, useState } from "react";
 
 type GastosViewProps = {
   canManageGastos: boolean;
@@ -25,11 +25,11 @@ export function GastosView({ canManageGastos }: GastosViewProps) {
     "todos"
   );
   const [metodoPago, setMetodoPago] = useState<
-    "todos" | "efectivo" | "transferencia" | "deuna" | "tarjeta" | "otro"
+    "todos" | "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto"
   >("todos");
   const [afectaCaja, setAfectaCaja] = useState<"todos" | "si" | "no">("todos");
 
-  async function loadGastos() {
+  const loadGastos = useCallback(async () => {
     try {
       setError("");
 
@@ -50,12 +50,12 @@ export function GastosView({ canManageGastos }: GastosViewProps) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [from, to, tipoGasto, ambito, metodoPago, afectaCaja]);
 
   useEffect(() => {
     setLoading(true);
     loadGastos();
-  }, [from, to, tipoGasto, ambito, metodoPago, afectaCaja]);
+  }, [loadGastos]);
 
   return (
     <div className="grid gap-6">
@@ -151,12 +151,12 @@ export function GastosView({ canManageGastos }: GastosViewProps) {
               onChange={(e) =>
                 setMetodoPago(
                   e.target.value as
-                    | "todos"
-                    | "efectivo"
-                    | "transferencia"
-                    | "deuna"
-                    | "tarjeta"
-                    | "otro"
+                  | "todos"
+                  | "efectivo"
+                  | "transferencia"
+                  | "deuna"
+                  | "tarjeta"
+                  | "mixto"
                 )
               }
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
@@ -166,7 +166,7 @@ export function GastosView({ canManageGastos }: GastosViewProps) {
               <option value="transferencia">Transferencia</option>
               <option value="deuna">DeUna</option>
               <option value="tarjeta">Tarjeta</option>
-              <option value="otro">Otro</option>
+              <option value="mixto">Mixto</option>
             </select>
           </div>
 

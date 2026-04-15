@@ -13,6 +13,21 @@ import type {
   Proveedor,
 } from "@/types";
 
+import {
+  normalizeMetodoPago,
+  resolveCuentaDesdeMetodoPago,
+  normalizeCuentaDinero,
+  normalizeNaturalezaMovimiento,
+} from "@/lib/core/finanzas/reglas";
+
+import { registrarCajaMovimiento } from "@/lib/core/finanzas/registrar-caja-movimiento";
+
+import {
+  calcularEstadoPagoFacturaCompra,
+  calcularFechaPagoFacturaCompra,
+  calcularSaldoPendienteFacturaCompra,
+} from "@/lib/core/compras/reglas";
+
 function toNumber(value: unknown, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -38,45 +53,6 @@ function normalizeUnidadCompra(
   return "unidad";
 }
 
-function normalizeMetodoPagoProveedor(
-  value?: PagoProveedor["metodo_pago"] | null
-): PagoProveedor["metodo_pago"] {
-  if (
-    value === "efectivo" ||
-    value === "transferencia" ||
-    value === "deuna" ||
-    value === "tarjeta" ||
-    value === "otro"
-  ) {
-    return value;
-  }
-
-  return "efectivo";
-}
-
-function resolveCuentaFromMetodoPagoProveedor(
-  metodo: PagoProveedor["metodo_pago"]
-): "caja" | "banco" | "deuna" | "tarjeta_por_cobrar" {
-  if (metodo === "efectivo") return "caja";
-  if (metodo === "deuna") return "deuna";
-  if (metodo === "tarjeta") return "tarjeta_por_cobrar";
-  return "banco";
-}
-
-function normalizeCuentaDinero(
-  value?: string | null
-): "caja" | "banco" | "deuna" | "tarjeta_por_cobrar" {
-  if (
-    value === "caja" ||
-    value === "banco" ||
-    value === "deuna" ||
-    value === "tarjeta_por_cobrar"
-  ) {
-    return value;
-  }
-
-  return "banco";
-}
 
 function normalizeOrigenFondo(
   value?: string | null
@@ -93,43 +69,16 @@ function normalizeOrigenFondo(
   return "negocio";
 }
 
-function normalizeNaturalezaMovimiento(
-  value?: string | null
-): "ingreso_operativo" | "gasto_operativo" | "aporte" | "prestamo_recibido" | "pago_prestamo" | "retiro_dueno" | "transferencia_interna" {
-  if (
-    value === "ingreso_operativo" ||
-    value === "gasto_operativo" ||
-    value === "aporte" ||
-    value === "prestamo_recibido" ||
-    value === "pago_prestamo" ||
-    value === "retiro_dueno" ||
-    value === "transferencia_interna"
-  ) {
-    return value;
-  }
-
-  return "gasto_operativo";
-}
-
-
-
-
 function metodoPagoProveedorToCaja(
-  metodo: PagoProveedor["metodo_pago"]
+  metodo: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto"
 ): "efectivo" | "transferencia" | "tarjeta" | "mixto" {
   if (metodo === "efectivo") return "efectivo";
   if (metodo === "tarjeta") return "tarjeta";
+  if (metodo === "mixto") return "mixto";
   return "transferencia";
 }
 
-function calcularEstadoPago(
-  total: number,
-  totalPagado: number
-): "pendiente" | "parcial" | "pagado" {
-  if (totalPagado <= 0) return "pendiente";
-  if (totalPagado >= total) return "pagado";
-  return "parcial";
-}
+
 
 async function requireAdminOrRecepcion() {
   const supabase = await createClient();
@@ -436,9 +385,8 @@ export async function createProductoAliasProveedor(params: {
   revalidatePath("/compras");
   return data;
 }
-
 export async function createFacturaCompra(input: CrearFacturaCompraInput) {
-  const { supabase, user } = await requireAdminOrRecepcion();
+  const { supabase } = await requireAdminOrRecepcion();
 
   if (!input.proveedor_id) {
     throw new Error("Debes seleccionar un proveedor.");
@@ -544,6 +492,7 @@ export async function createFacturaCompra(input: CrearFacturaCompraInput) {
       estado_pago: "pendiente",
       total_pagado: 0,
       saldo_pendiente: total,
+      fecha_pago: null,
       archivo_url: normalizeText(input.archivo_url),
       archivo_nombre: normalizeText(input.archivo_nombre),
       origen: input.origen ?? "manual",
@@ -835,9 +784,13 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
     throw new Error("El monto del pago debe ser mayor a 0.");
   }
 
-  const metodo_pago = normalizeMetodoPagoProveedor(input.metodo_pago);
+  const metodo_pago = normalizeMetodoPago(input.metodo_pago);
+  if (metodo_pago === "mixto" && !input.cuenta) {
+    throw new Error("Debes indicar la cuenta cuando el método de pago es mixto.");
+  }
+
   const cuenta = normalizeCuentaDinero(
-    input.cuenta ?? resolveCuentaFromMetodoPagoProveedor(metodo_pago)
+    input.cuenta ?? resolveCuentaDesdeMetodoPago(metodo_pago)
   );
   const origen_fondo = normalizeOrigenFondo(input.origen_fondo);
   const naturaleza = normalizeNaturalezaMovimiento(input.naturaleza);
@@ -849,7 +802,9 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
 
   const { data: factura, error: facturaError } = await supabase
     .from("facturas_compra")
-    .select("id, proveedor_id, numero_factura, total, total_pagado, saldo_pendiente, estado_pago")
+    .select(
+      "id, proveedor_id, numero_factura, total, total_pagado, saldo_pendiente, estado_pago"
+    )
     .eq("id", input.factura_compra_id)
     .single();
 
@@ -892,6 +847,7 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
       );
     }
   }
+
   const { data: pagoReciente } = await supabase
     .from("pagos_proveedor")
     .select("id, monto, created_at")
@@ -902,6 +858,7 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
   if (pagoReciente && Number(pagoReciente.monto) === monto) {
     throw new Error("Posible pago duplicado detectado");
   }
+
   const { data: pago, error: pagoError } = await supabase
     .from("pagos_proveedor")
     .insert({
@@ -926,72 +883,85 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
     throw new Error("No se pudo registrar el pago al proveedor.");
   }
 
-  if (cuenta === "caja" && afecta_caja && cajaAbierta) {
-    const { error: cajaError } = await supabase
-      .from("caja_movimientos")
-      .insert({
-        caja_id: cajaAbierta.id,
-        tipo: "egreso",
-        categoria: "pago_proveedor",
-        monto,
-        descripcion: `Pago proveedor · Factura ${factura.numero_factura}`,
-        referencia_tipo: "pago_proveedor",
-        referencia_id: pago.id,
-        metodo_pago: metodoPagoProveedorToCaja(metodo_pago),
-        cuenta,
-        origen_fondo,
-        naturaleza,
-        cuenta_destino: null,
-        creado_por: user.id,
-      });
+  let cajaMovimientoId: string | null = null;
 
-    if (cajaError) {
-      console.error("Error createPagoProveedor caja_movimientos:", cajaError);
+  try {
+    const movimiento = await registrarCajaMovimiento({
+      supabase,
+      caja_id: cuenta === "caja" && afecta_caja ? cajaAbierta?.id ?? null : null,
+      tipo: "egreso",
+      categoria: "pago_proveedor",
+      monto,
+      descripcion: `Pago proveedor · Factura ${factura.numero_factura}`,
+      referencia_tipo: "pago_proveedor",
+      referencia_id: pago.id,
+      metodo_pago: metodoPagoProveedorToCaja(metodo_pago),
+      cuenta,
+      origen_fondo,
+      naturaleza,
+      cuenta_destino: null,
+      creado_por: user.id,
+    });
 
-      await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
-
-      throw new Error(
-        "No se pudo registrar el movimiento en caja. El pago fue revertido."
-      );
-    }
+    cajaMovimientoId = movimiento.id;
+  } catch (error) {
+    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
+    throw error;
   }
 
   const nuevoTotalPagado = toNumber(totalPagadoActual + monto, 0);
-  const nuevoSaldoPendiente = Math.max(
-    0,
-    toNumber(totalFactura - nuevoTotalPagado, 0)
+  const nuevoSaldoPendiente = calcularSaldoPendienteFacturaCompra(
+    totalFactura,
+    nuevoTotalPagado
   );
-  const nuevoEstadoPago = calcularEstadoPago(totalFactura, nuevoTotalPagado);
 
-  const { error: updateFacturaError } = await supabase
+  const nuevoEstadoPago = calcularEstadoPagoFacturaCompra(
+    totalFactura,
+    nuevoTotalPagado
+  );
+
+  const nuevaFechaPago = calcularFechaPagoFacturaCompra({
+    estadoPago: nuevoEstadoPago,
+    fecha: input.fecha.trim(),
+  });
+
+  const { data: facturaActualizada, error: updateFacturaError } = await supabase
     .from("facturas_compra")
     .update({
       total_pagado: nuevoTotalPagado,
       saldo_pendiente: nuevoSaldoPendiente,
       estado_pago: nuevoEstadoPago,
+      fecha_pago: nuevaFechaPago,
     })
-    .eq("id", input.factura_compra_id);
+    .eq("id", input.factura_compra_id)
+    .gte("saldo_pendiente", monto)
+    .select("id")
+    .single();
 
-  if (updateFacturaError) {
+  if (updateFacturaError || !facturaActualizada) {
+    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
+
+    if (cajaMovimientoId) {
+      await supabase
+        .from("caja_movimientos")
+        .delete()
+        .eq("id", cajaMovimientoId);
+    }
+
+    if (!facturaActualizada) {
+      throw new Error("Otro pago fue registrado antes. Intenta nuevamente.");
+    }
+
     console.error(
       "Error createPagoProveedor actualizando factura:",
       updateFacturaError
     );
 
-    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
-
-    if (cuenta === "caja" && afecta_caja) {
-      await supabase
-        .from("caja_movimientos")
-        .delete()
-        .eq("referencia_tipo", "pago_proveedor")
-        .eq("referencia_id", pago.id);
-    }
-
     throw new Error(
-      "No se pudo actualizar el estado de pago de la factura. El pago fue revertido."
+      "No se pudo actualizar el estado de pago de la factura."
     );
   }
+
 
   revalidatePath("/compras");
   revalidatePath("/caja");

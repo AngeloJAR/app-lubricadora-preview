@@ -16,6 +16,7 @@ type ProductoStockRow = {
   id: string;
   stock: number | string | null;
   precio_compra: number | string | null;
+  costo_real?: number | string | null;
   nombre: string;
 };
 
@@ -50,7 +51,7 @@ export async function procesarSalidaStockPorOrden(params: {
 
   const { data, error: productosError } = await supabase
     .from("productos")
-    .select("id, stock, precio_compra, nombre")
+    .select("id, stock, precio_compra, costo_real, nombre")
     .in("id", productoIds);
 
   if (productosError || !data) {
@@ -64,22 +65,63 @@ export async function procesarSalidaStockPorOrden(params: {
 
   const movimientos: ProductoMovimientoInsert[] = [];
 
+  const productosAgrupados = new Map<
+    string,
+    { cantidad: number; totalVenta: number }
+  >();
+
   for (const item of productosItems) {
     if (!item.producto_id) continue;
 
-    const producto = productosMap.get(item.producto_id);
+    const cantidad = Number(item.cantidad ?? 0);
+    const precio = Number(item.precio_unitario ?? 0);
+
+    const existente = productosAgrupados.get(item.producto_id);
+
+    if (existente) {
+      existente.cantidad += cantidad;
+      existente.totalVenta += cantidad * precio;
+    } else {
+      productosAgrupados.set(item.producto_id, {
+        cantidad,
+        totalVenta: cantidad * precio,
+      });
+    }
+  }
+
+  for (const [productoId, dataAgrupada] of productosAgrupados) {
+    const cantidadTotal = dataAgrupada.cantidad;
+    const totalVenta = dataAgrupada.totalVenta;
+    const producto = productosMap.get(productoId);
 
     if (!producto) {
-      throw new Error(`Producto no encontrado: ${item.nombre_item ?? ""}`);
+      throw new Error(`Producto no encontrado`);
     }
 
-    const cantidad = Number(item.cantidad ?? 0);
-    const precioUnitario = Number(item.precio_unitario ?? 0);
-    const precioCompra = Number(producto.precio_compra ?? 0);
+    const costoUnitarioReal = Number(producto.costo_real ?? producto.precio_compra ?? 0);
+
+    const stockActual = Number(producto.stock ?? 0);
+    const cantidadSalida = Number(cantidadTotal);
+
+    console.error("DEBUG_STOCK_SALIDA_ORDEN", {
+      ordenId,
+      productoId: producto.id,
+      productoNombre: producto.nombre,
+      stockActual,
+      cantidadSalida,
+      itemsOriginales: productosItems
+        .filter((item) => item.producto_id === producto.id)
+        .map((item) => ({
+          producto_id: item.producto_id,
+          nombre_item: item.nombre_item,
+          cantidad: item.cantidad,
+          tipo_item: item.tipo_item,
+        })),
+    });
 
     const movimientoStock = aplicarSalidaStock(
-      Number(producto.stock ?? 0),
-      cantidad
+      stockActual,
+      cantidadSalida
     );
 
     const nuevoStock = movimientoStock.stock_nuevo;
@@ -93,14 +135,17 @@ export async function procesarSalidaStockPorOrden(params: {
       throw new Error(`No se pudo actualizar el stock de ${producto.nombre}`);
     }
 
+    const precioUnitarioVenta =
+      cantidadTotal > 0 ? totalVenta / cantidadTotal : 0;
+
     movimientos.push({
       producto_id: producto.id,
       tipo: "salida",
       motivo: "Venta en orden",
-      cantidad,
-      costo_unitario: precioCompra,
-      precio_unitario: precioUnitario,
-      total: cantidad * precioUnitario,
+      cantidad: cantidadTotal,
+      costo_unitario: costoUnitarioReal,
+      precio_unitario: precioUnitarioVenta,
+      total: cantidadTotal * costoUnitarioReal,
       referencia_tipo: "orden",
       referencia_id: ordenId,
     });
@@ -122,31 +167,55 @@ export async function procesarEntradaStockPorCancelacion(params: {
 }) {
   const { supabase, ordenId, items } = params;
 
-  const productosItems = items.filter((item) => Boolean(item.producto_id));
+  const productosItems = items.filter(
+    (item) => item.tipo_item === "producto" && Boolean(item.producto_id)
+  );
+
+  if (productosItems.length === 0) return;
+
+  const productosAgrupados = new Map<string, number>();
 
   for (const item of productosItems) {
     if (!item.producto_id) continue;
 
-    const { data, error } = await supabase
-      .from("productos")
-      .select("id, stock, precio_compra, nombre")
-      .eq("id", item.producto_id)
-      .single();
+    const cantidad = Number(item.cantidad ?? 0);
 
-    const producto = (data as ProductoStockRow | null) ?? null;
+    productosAgrupados.set(
+      item.producto_id,
+      (productosAgrupados.get(item.producto_id) ?? 0) + cantidad
+    );
+  }
 
-    if (error || !producto) {
-      throw new Error(
-        `No se pudo obtener el producto: ${item.nombre_item ?? ""}`
-      );
+  const productoIds = Array.from(productosAgrupados.keys());
+
+  const { data, error: productosError } = await supabase
+    .from("productos")
+    .select("id, stock, precio_compra, costo_real, nombre")
+    .in("id", productoIds);
+
+  if (productosError || !data) {
+    throw new Error("No se pudieron obtener los productos");
+  }
+
+  const productosDB = data as ProductoStockRow[];
+  const productosMap = new Map<string, ProductoStockRow>(
+    productosDB.map((p) => [p.id, p])
+  );
+
+  const movimientos: ProductoMovimientoInsert[] = [];
+
+  for (const [productoId, cantidadTotal] of productosAgrupados) {
+    const producto = productosMap.get(productoId);
+
+    if (!producto) {
+      throw new Error("Producto no encontrado");
     }
 
-    const cantidad = Number(item.cantidad ?? 0);
-    const precioCompra = Number(producto.precio_compra ?? 0);
+    const costoUnitarioReal = Number(producto.costo_real ?? producto.precio_compra ?? 0);
 
     const movimientoStock = aplicarEntradaStock(
       Number(producto.stock ?? 0),
-      cantidad
+      cantidadTotal
     );
 
     const nuevoStock = movimientoStock.stock_nuevo;
@@ -159,27 +228,24 @@ export async function procesarEntradaStockPorCancelacion(params: {
     if (updateError) {
       throw new Error(`No se pudo devolver stock de ${producto.nombre}`);
     }
-
-    const movimiento: ProductoMovimientoInsert = {
+    movimientos.push({
       producto_id: producto.id,
       tipo: "entrada",
-      motivo: "Devolución por orden cancelada",
-      cantidad,
-      costo_unitario: precioCompra,
+      motivo: "Devolución por cambio de estado de orden",
+      cantidad: cantidadTotal,
+      costo_unitario: costoUnitarioReal,
       precio_unitario: null,
-      total: cantidad * precioCompra,
-      referencia_tipo: "orden_cancelada",
+      total: cantidadTotal * costoUnitarioReal,
+      referencia_tipo: "orden",
       referencia_id: ordenId,
-    };
+    });
+  }
 
-    const { error: movimientoError } = await supabase
-      .from("producto_movimientos")
-      .insert([movimiento]);
+  const { error: movimientosError } = await supabase
+    .from("producto_movimientos")
+    .insert(movimientos);
 
-    if (movimientoError) {
-      throw new Error(
-        `No se pudo registrar devolución de ${producto.nombre}`
-      );
-    }
+  if (movimientosError) {
+    throw new Error("Error registrando devoluciones de stock");
   }
 }

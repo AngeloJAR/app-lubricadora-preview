@@ -76,7 +76,8 @@ export async function updateOrdenEstado(
     (estado === "completada" || estado === "entregada") && !stockYaDescontado;
 
   const stockDebeDevolverseAhora =
-    estado === "cancelada" && stockYaDescontado;
+    stockYaDescontado &&
+    (estado === "pendiente" || estado === "en_proceso" || estado === "cancelada");
 
   if (stockDebeDescontarseAhora) {
     await procesarSalidaStockPorOrden({
@@ -124,16 +125,20 @@ export async function updateOrdenEstado(
     throw new Error("No se pudo actualizar el estado de la orden");
   }
 
-  await registrarAuditoriaLog({
-    supabase,
-    usuario_id: user.id,
-    entidad: "orden",
-    entidad_id: ordenId,
-    accion: "cambio_estado",
-    descripcion: `Cambio de estado de ${ordenAntes.estado} a ${estado}`,
-    datos_antes: { estado: ordenAntes.estado },
-    datos_despues: { estado },
-  });
+  try {
+    await registrarAuditoriaLog({
+      supabase,
+      usuario_id: user.id,
+      entidad: "orden",
+      entidad_id: ordenId,
+      accion: "cambio_estado",
+      descripcion: `Cambio de estado de ${ordenAntes.estado} a ${estado}`,
+      datos_antes: { estado: ordenAntes.estado },
+      datos_despues: { estado },
+    });
+  } catch (auditError) {
+    console.error("No se pudo registrar auditoría de cambio de estado:", auditError);
+  }
 
   const debeRegistrarPuntos =
     (estado === "completada" || estado === "entregada") &&
@@ -141,25 +146,29 @@ export async function updateOrdenEstado(
     ordenAntes.estado !== "entregada";
 
   if (debeRegistrarPuntos) {
-    const { data: movimientoExistente } = await supabase
-      .from("cliente_puntos_movimientos")
-      .select("id")
-      .eq("orden_id", ordenId)
-      .eq("tipo", "acumulacion")
-      .maybeSingle();
+    try {
+      const { data: movimientoExistente } = await supabase
+        .from("cliente_puntos_movimientos")
+        .select("id")
+        .eq("orden_id", ordenId)
+        .eq("tipo", "acumulacion")
+        .maybeSingle();
 
-    if (!movimientoExistente) {
-      const puntos = calcularPuntosOrden((itemsOrden ?? []) as OrdenItem[]);
+      if (!movimientoExistente) {
+        const puntos = calcularPuntosOrden((itemsOrden ?? []) as OrdenItem[]);
 
-      if (puntos > 0) {
-        await registrarPuntosCliente({
-          clienteId: ordenAntes.cliente_id,
-          vehiculoId: ordenAntes.vehiculo_id,
-          ordenId,
-          puntos,
-          motivo: `Puntos generados por la orden ${ordenId}`,
-        });
+        if (puntos > 0) {
+          await registrarPuntosCliente({
+            clienteId: ordenAntes.cliente_id,
+            vehiculoId: ordenAntes.vehiculo_id,
+            ordenId,
+            puntos,
+            motivo: `Puntos generados por la orden ${ordenId}`,
+          });
+        }
       }
+    } catch (puntosError) {
+      console.error("No se pudieron registrar los puntos de la orden:", puntosError);
     }
   }
 

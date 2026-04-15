@@ -194,7 +194,6 @@ export async function createPagoEmpleado(payload: PagoEmpleadoFormData) {
       creado_por: user.id,
       referencia_tipo: "empleado_pago",
       referencia_id: data.id,
-      fecha: fecha_pago,
     });
 
   if (movimientoError) {

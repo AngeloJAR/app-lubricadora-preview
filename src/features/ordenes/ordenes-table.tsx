@@ -5,7 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { OrdenConRelaciones } from "@/types";
 import { OrdenEstadoSelect } from "./orden-estado-select";
 import { CobrarModal } from "./cobrar-modal";
-import type { OrdenEstado } from "@/utils/orden-status";
+import type { OrdenEstado } from "@/lib/core/ordenes/reglas";
+import { puedeCobrarOrdenUI } from "@/lib/core/ui/permisos-ordenes";
+
 
 type OrdenesTableProps = {
   ordenes: OrdenConRelaciones[];
@@ -408,6 +410,18 @@ export function OrdenesTable({
                             <p className="mt-2 text-base font-semibold text-gray-900 md:text-lg">
                               {formatCurrency(orden.total)}
                             </p>
+                            <p className="mt-2 text-xs text-gray-500">
+                              Pago:{" "}
+                              <span className="font-medium text-gray-700">
+                                {orden.estado_pago ?? "pendiente"}
+                              </span>
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              Saldo:{" "}
+                              <span className="font-medium text-gray-700">
+                                {formatCurrency(orden.saldo_pendiente ?? orden.total)}
+                              </span>
+                            </p>
                           </div>
                         ) : null}
                       </div>
@@ -464,7 +478,11 @@ export function OrdenesTable({
                         Ver detalle
                       </Link>
 
-                      {orden.estado === "completada" && isAdminView ? (
+                      {puedeCobrarOrdenUI(
+                        rol,
+                        orden.estado,
+                        orden.estado_pago ?? "pendiente"
+                      ) ? (
                         <button
                           onClick={() => handleCobrar(orden)}
                           className="inline-flex min-h-11 items-center justify-center rounded-xl border border-green-300 bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:brightness-95"
@@ -494,13 +512,28 @@ export function OrdenesTable({
         <CobrarModal
           open={!!ordenCobrar}
           ordenId={ordenCobrar.id}
-          total={ordenCobrar.total}
-          onClose={(estadoFinal?: "entregada") => {
+          total={Number(ordenCobrar.total ?? 0)}
+          totalPagado={Number(ordenCobrar.total_pagado ?? 0)}
+          onClose={(result) => {
+            const ordenId = ordenCobrar.id;
+
             setOrdenCobrar(null);
 
-            if (estadoFinal === "entregada") {
-              setRows((prev) => prev.filter((o) => o.id !== ordenCobrar.id));
-            }
+            if (!result) return;
+
+            setRows((prev) =>
+              prev.map((o) =>
+                o.id === ordenId
+                  ? {
+                    ...o,
+                    estado: result.orden_estado,
+                    estado_pago: result.estado_pago,
+                    total_pagado: result.total_pagado,
+                    saldo_pendiente: result.saldo_restante,
+                  }
+                  : o
+              )
+            );
           }}
         />
       )}

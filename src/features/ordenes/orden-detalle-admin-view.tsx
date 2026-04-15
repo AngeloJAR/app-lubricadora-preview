@@ -39,6 +39,12 @@ import {
   getEstadoTareaLabel,
 } from "./orden-detalle-shared";
 
+import {
+  puedeEditarOrdenPorRolYEstado,
+  puedeEnviarWhatsappOrden,
+  puedeImprimirOrden,
+} from "@/lib/core/ui/permisos-ordenes";
+
 type OrdenDetalleAdminViewProps = {
   orden: OrdenDetalle;
   canManageOrden: boolean;
@@ -61,6 +67,7 @@ type TecnicoAsignadoOption = {
 export function OrdenDetalleAdminView({
   orden,
   canManageOrden,
+  rol,
 }: OrdenDetalleAdminViewProps) {
   const [tareas, setTareas] = useState<OrdenTareaDetalle[]>([]);
   const [loadingTareas, setLoadingTareas] = useState(true);
@@ -238,9 +245,7 @@ export function OrdenDetalleAdminView({
     <div className="grid gap-4">
       {canManageOrden ? (
         <div className="flex flex-wrap gap-2">
-          {orden.estado !== "completada" &&
-            orden.estado !== "entregada" &&
-            orden.estado !== "cancelada" ? (
+          {puedeEditarOrdenPorRolYEstado(rol, orden.estado) ? (
             <Link
               href={`/ordenes/${orden.id}/editar`}
               className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm transition hover:bg-gray-50"
@@ -250,10 +255,15 @@ export function OrdenDetalleAdminView({
           ) : null}
 
           <RepetirOrdenButton ordenId={orden.id} />
-          <PrintButton ordenId={orden.id} />
-          <OrdenPdfButton ordenId={orden.id} />
-          <OrdenStoragePdfButton ordenId={orden.id} />
-          <OrdenWhatsappButton orden={orden} />
+
+          {puedeImprimirOrden(rol) ? <PrintButton ordenId={orden.id} /> : null}
+          {puedeImprimirOrden(rol) ? <OrdenPdfButton ordenId={orden.id} /> : null}
+          {puedeImprimirOrden(rol) ? (
+            <OrdenStoragePdfButton ordenId={orden.id} />
+          ) : null}
+          {puedeEnviarWhatsappOrden(rol) ? (
+            <OrdenWhatsappButton orden={orden} />
+          ) : null}
         </div>
       ) : null}
 

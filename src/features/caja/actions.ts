@@ -8,7 +8,8 @@ import type {
   CajaMovimiento,
   CajaMovimientoFormData,
 } from "@/types";
-
+import { registrarCajaMovimiento } from "@/lib/core/finanzas/registrar-caja-movimiento";
+import { getSaldosDineroActuales } from "@/lib/core/finanzas/saldos";
 type PerfilActivo = {
   id: string;
   rol: "admin" | "recepcion" | "tecnico";
@@ -81,6 +82,22 @@ async function getCajaAbiertaInterna() {
   return (data ?? null) as Caja | null;
 }
 
+async function getSaldoDisponibleTransferencia(
+  cuenta: "caja" | "boveda" | "banco" | "deuna"
+) {
+  if (cuenta === "caja") {
+    const resumenActual = await getCajaResumenActual();
+    return resumenActual?.esperado ?? 0;
+  }
+
+  const { saldoBoveda, saldoBanco, saldoDeuna } =
+    await getSaldosDineroActuales();
+
+  if (cuenta === "boveda") return saldoBoveda;
+  if (cuenta === "banco") return saldoBanco;
+  return saldoDeuna;
+}
+
 export async function getCajaAbierta(): Promise<Caja | null> {
   return getCajaAbiertaInterna();
 }
@@ -125,6 +142,7 @@ export async function abrirCaja(
     .from("cajas")
     .insert({
       fecha: hoy,
+      fecha_apertura: new Date().toISOString(),
       estado: "abierta",
       monto_apertura: montoApertura,
       observaciones: payload.observaciones.trim() || null,
@@ -138,7 +156,25 @@ export async function abrirCaja(
     console.error("Error abriendo caja:", error?.message);
     throw new Error("No se pudo abrir la caja");
   }
+  if (montoApertura > 0) {
+    try {
+      await transferirEntreCuentas({
+        cuenta_origen: "boveda",
+        cuenta_destino: "caja",
+        montoInput: String(montoApertura),
+        descripcionInput:
+          payload.observaciones.trim() || "Apertura de caja desde bóveda",
+      });
+    } catch (error) {
+      await supabase.from("cajas").delete().eq("id", data.id);
 
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : "No se pudo mover el dinero de bóveda a caja para la apertura."
+      );
+    }
+  }
   return data as Caja;
 }
 
@@ -179,37 +215,34 @@ export async function registrarMovimientoCaja(
   }
 
   const descripcion = payload.descripcion.trim();
+  let naturalezaFinal = payload.naturaleza;
 
-  const { data, error } = await supabase
-    .from("caja_movimientos")
-    .insert({
-      caja_id: cajaAbierta.id,
-      tipo: payload.tipo,
-      categoria: payload.categoria,
-      monto,
-      descripcion: descripcion || null,
-
-      cuenta: payload.cuenta ?? "caja",
-      origen_fondo: payload.origen_fondo ?? "negocio",
-      naturaleza: payload.naturaleza ?? "gasto_operativo",
-
-      metodo_pago: payload.metodo_pago,
-      creado_por: user.id,
-      referencia_tipo: "manual",
-      referencia_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    })
-    .select()
-    .single();
-
-  if (error || !data) {
-    console.error("Error registrando movimiento de caja:", {
-      message: error?.message,
-      details: error?.details,
-      hint: error?.hint,
-      code: error?.code,
-    });
-    throw new Error("No se pudo registrar el movimiento");
+  if (payload.tipo === "ingreso") {
+    if (!naturalezaFinal || naturalezaFinal === "gasto_operativo") {
+      naturalezaFinal = "ingreso_operativo";
+    }
   }
+
+  if (payload.tipo === "egreso") {
+    if (!naturalezaFinal || naturalezaFinal === "ingreso_operativo") {
+      naturalezaFinal = "gasto_operativo";
+    }
+  }
+  const data = await registrarCajaMovimiento({
+    supabase,
+    caja_id: cajaAbierta.id,
+    tipo: payload.tipo,
+    categoria: payload.categoria,
+    monto,
+    descripcion: descripcion || null,
+    cuenta: payload.cuenta ?? "caja",
+    origen_fondo: payload.origen_fondo ?? "negocio",
+    naturaleza: naturalezaFinal,
+    metodo_pago: payload.metodo_pago,
+    referencia_tipo: "manual",
+    referencia_id: crypto.randomUUID(),
+    creado_por: user.id,
+  });
 
   return data as CajaMovimiento;
 }
@@ -218,7 +251,30 @@ export async function transferirCajaABoveda(
   montoInput: string,
   descripcionInput?: string | null
 ): Promise<{ success: true }> {
+  return transferirEntreCuentas({
+    cuenta_origen: "caja",
+    cuenta_destino: "boveda",
+    montoInput,
+    descripcionInput,
+  });
+}
+
+export async function transferirEntreCuentas({
+  cuenta_origen,
+  cuenta_destino,
+  montoInput,
+  descripcionInput,
+}: {
+  cuenta_origen: "caja" | "boveda" | "banco" | "deuna";
+  cuenta_destino: "caja" | "boveda" | "banco" | "deuna";
+  montoInput: string;
+  descripcionInput?: string | null;
+}): Promise<{ success: true }> {
   const { supabase, user } = await requireCajaAccess();
+
+  if (cuenta_origen === cuenta_destino) {
+    throw new Error("La cuenta origen y destino no pueden ser iguales");
+  }
 
   const cajaAbierta = await getCajaAbiertaInterna();
 
@@ -231,94 +287,71 @@ export async function transferirCajaABoveda(
   if (Number.isNaN(monto) || monto <= 0) {
     throw new Error("El monto no es válido");
   }
+  const saldoDisponible = await getSaldoDisponibleTransferencia(cuenta_origen);
 
-  const movimientos = await getCajaMovimientos(cajaAbierta.id);
-
-  const ingresosCaja = movimientos
-    .filter((item) => item.tipo === "ingreso" && item.cuenta === "caja")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const egresosCaja = movimientos
-    .filter((item) => item.tipo === "egreso" && item.cuenta === "caja")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const saldoCajaActual =
-    toNumber(cajaAbierta.monto_apertura) + ingresosCaja - egresosCaja;
-
-  if (monto > saldoCajaActual) {
-    throw new Error("No puedes transferir más dinero del disponible en caja");
+  if (monto > saldoDisponible) {
+    throw new Error(
+      `No puedes transferir más dinero del disponible en ${cuenta_origen}`
+    );
   }
 
   const descripcionBase =
-    descripcionInput?.trim() || "Transferencia de caja a bóveda";
+    descripcionInput?.trim() ||
+    `Transferencia de ${cuenta_origen} a ${cuenta_destino}`;
 
   const referenciaTransferencia =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `transferencia-${Date.now()}`;
 
-  const { data: egresoCaja, error: errorEgresoCaja } = await supabase
-    .from("caja_movimientos")
-    .insert({
+  let egresoId: string | null = null;
+
+  try {
+    const egreso = await registrarCajaMovimiento({
+      supabase,
       caja_id: cajaAbierta.id,
       tipo: "egreso",
-      categoria: "ajuste",
+      categoria: "transferencia_interna",
       monto,
       descripcion: descripcionBase,
-      cuenta: "caja",
+      cuenta: cuenta_origen,
       origen_fondo: "negocio",
       naturaleza: "transferencia_interna",
       metodo_pago: "efectivo",
-      creado_por: user.id,
       referencia_tipo: "transferencia_interna",
       referencia_id: referenciaTransferencia,
-    })
-    .select("id")
-    .single();
-
-  if (errorEgresoCaja || !egresoCaja) {
-    console.error("Error registrando egreso de caja:", {
-      message: errorEgresoCaja?.message,
-      details: errorEgresoCaja?.details,
-      hint: errorEgresoCaja?.hint,
-      code: errorEgresoCaja?.code,
+      creado_por: user.id,
+      cuenta_destino,
     });
-    throw new Error("No se pudo registrar la salida de caja");
-  }
 
-  const { error: errorIngresoBoveda } = await supabase
-    .from("caja_movimientos")
-    .insert({
+    egresoId = egreso.id;
+
+    await registrarCajaMovimiento({
+      supabase,
       caja_id: cajaAbierta.id,
       tipo: "ingreso",
-      categoria: "ajuste",
+      categoria: "transferencia_interna",
       monto,
       descripcion: descripcionBase,
-      cuenta: "boveda",
+      cuenta: cuenta_destino,
       origen_fondo: "negocio",
       naturaleza: "transferencia_interna",
       metodo_pago: "efectivo",
-      creado_por: user.id,
       referencia_tipo: "transferencia_interna",
       referencia_id: referenciaTransferencia,
+      creado_por: user.id,
+      cuenta_destino: cuenta_origen,
     });
+  } catch (error) {
+    if (egresoId) {
+      await supabase.from("caja_movimientos").delete().eq("id", egresoId);
+    }
 
-  if (errorIngresoBoveda) {
-    console.error("Error registrando ingreso en bóveda:", {
-      message: errorIngresoBoveda.message,
-      details: errorIngresoBoveda.details,
-      hint: errorIngresoBoveda.hint,
-      code: errorIngresoBoveda.code,
-    });
-
-    await supabase.from("caja_movimientos").delete().eq("id", egresoCaja.id);
-
-    throw new Error("No se pudo registrar el ingreso en bóveda");
+    throw new Error("No se pudo completar la transferencia entre cuentas");
   }
 
   return { success: true };
 }
-
 
 export async function cerrarCaja(
   payload: CajaCierreFormData
@@ -340,6 +373,15 @@ export async function cerrarCaja(
   const montoEsperado = resumen.esperado;
   const diferencia = montoCierre - montoEsperado;
 
+  if (montoCierre > 0) {
+    await transferirEntreCuentas({
+      cuenta_origen: "caja",
+      cuenta_destino: "boveda",
+      montoInput: String(montoCierre),
+      descripcionInput:
+        payload.observaciones.trim() || "Cierre de caja enviado a bóveda",
+    });
+  }
   const { data, error } = await supabase
     .from("cajas")
     .update({
@@ -356,8 +398,8 @@ export async function cerrarCaja(
     .single();
 
   if (error || !data) {
-    console.error("Error cerrando caja:", error?.message);
-    throw new Error("No se pudo cerrar la caja");
+    console.error("Error cerrando caja:", error);
+    throw new Error(error?.message || "No se pudo cerrar la caja.");
   }
 
   return data as Caja;
@@ -441,27 +483,36 @@ export async function getBovedaResumenActual(): Promise<{
   egresos: number;
   saldo: number;
   cantidadMovimientos: number;
-} | null> {
-  const caja = await getCajaAbiertaInterna();
+}> {
+  const { supabase } = await requireCajaAccess();
 
-  if (!caja) return null;
+  const { data, error } = await supabase
+    .from("caja_movimientos")
+    .select("tipo, monto, cuenta")
+    .eq("cuenta", "boveda")
+    .order("created_at", { ascending: false });
 
-  const movimientos = await getCajaMovimientos(caja.id);
+  if (error) {
+    console.error("Error obteniendo movimientos de bóveda:", error.message);
+    throw new Error("No se pudo obtener el resumen de bóveda");
+  }
+
+  const movimientos = (data ?? []) as CajaMovimiento[];
 
   const ingresos = movimientos
-    .filter((item) => item.tipo === "ingreso" && item.cuenta === "boveda")
+    .filter((item) => item.tipo === "ingreso")
     .reduce((acc, item) => acc + toNumber(item.monto), 0);
 
   const egresos = movimientos
-    .filter((item) => item.tipo === "egreso" && item.cuenta === "boveda")
+    .filter((item) => item.tipo === "egreso")
     .reduce((acc, item) => acc + toNumber(item.monto), 0);
 
-  const saldo = ingresos - egresos;
+  const { saldoBoveda } = await getSaldosDineroActuales();
 
   return {
     ingresos,
     egresos,
-    saldo,
+    saldo: saldoBoveda,
     cantidadMovimientos: movimientos.length,
   };
 }

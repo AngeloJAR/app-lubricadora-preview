@@ -6,7 +6,7 @@ import {
   getDashboardRange,
   type DashboardPeriodo,
 } from "./dashboard-periodo";
-
+import { getSaldosDineroActuales } from "@/lib/core/finanzas/saldos";
 import type {
   DashboardClienteReciente,
   DashboardMantenimientoProximo,
@@ -19,33 +19,6 @@ import type {
   ClienteCampaniaReactivacion,
   DashboardClienteInactivo,
 } from "@/types";
-
-type VentaTotalRow = {
-  total: number | null;
-};
-
-type MovimientoCostoRow = {
-  cantidad: number | null;
-  costo_unitario: number | null;
-  total?: number | null;
-};
-
-type GastoMontoRow = {
-  monto: number | null;
-  fecha?: string | null;
-  tipo_gasto?: "fijo" | "variable" | null;
-  naturaleza?: string | null;
-  cuenta?: string | null;
-  origen_fondo?: string | null;
-};
-
-type PagoEmpleadoRow = {
-  monto: number | null;
-  fecha_pago: string | null;
-  naturaleza?: string | null;
-  cuenta?: string | null;
-  origen_fondo?: string | null;
-};
 
 type CajaMovimientoRow = {
   tipo: "ingreso" | "egreso";
@@ -95,28 +68,6 @@ type OrdenDashboardRow = {
   hora_fin: string | null;
 };
 
-type ProductoRentableMovimientoRow = {
-  producto_id: string;
-  cantidad: number;
-  costo_unitario: number | null;
-  precio_unitario: number | null;
-  productos:
-  | {
-    id: string;
-    nombre: string;
-  }
-  | {
-    id: string;
-    nombre: string;
-  }[]
-  | null;
-};
-
-type ServicioRentabilidadRow = {
-  nombre_item: string;
-  total: number | null;
-};
-
 type ServicioTopRow = {
   nombre_item: string;
   total: number | null;
@@ -153,8 +104,9 @@ type ClienteInactivoRow = {
   nombres: string;
   apellidos: string;
   telefono: string;
-  ordenes_trabajo: {
+  ordenes_trabajo?: {
     created_at: string;
+    estado?: string | null;
   }[];
 };
 
@@ -218,26 +170,6 @@ function calcMargen(ventas: number, utilidad: number) {
   return (utilidad / ventas) * 100;
 }
 
-function logSupabaseError(label: string, error: unknown) {
-  if (!error || typeof error !== "object") {
-    console.error(label, error);
-    return;
-  }
-
-  const supabaseError = error as {
-    message?: string;
-    details?: string;
-    hint?: string;
-    code?: string;
-  };
-
-  console.error(label, {
-    message: supabaseError.message ?? null,
-    details: supabaseError.details ?? null,
-    hint: supabaseError.hint ?? null,
-    code: supabaseError.code ?? null,
-  });
-}
 
 function normalizeRelation<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -248,85 +180,12 @@ function isNaturalezaOperativa(naturaleza?: string | null) {
   return !naturaleza || naturaleza === "gasto_operativo";
 }
 
-function calcularSaldoPorCuenta(
-  movimientos: CajaMovimientoRow[],
-  cuenta: "caja" | "banco" | "deuna" | "boveda" | "tarjeta_por_cobrar",
-  montoApertura = 0
-) {
-  const saldoMovimientos = movimientos
-    .filter((item) => item.cuenta === cuenta)
-    .reduce((acc, item) => {
-      const monto = toNumber(item.monto);
-      return item.tipo === "ingreso" ? acc + monto : acc - monto;
-    }, 0);
-
-  if (cuenta === "caja") {
-    return montoApertura + saldoMovimientos;
-  }
-
-  return saldoMovimientos;
-}
-
 function calcularPrestamoIngresado(movimientos: CajaMovimientoRow[]) {
   return movimientos
     .filter((item) => item.naturaleza === "prestamo_recibido")
     .reduce((acc, item) => acc + toNumber(item.monto), 0);
 }
 
-function calcularPrestamoUsado(
-  movimientos: CajaMovimientoRow[],
-  gastos: GastoMontoRow[],
-  pagosProveedor: GastoMontoRow[],
-  pagosEmpleado: PagoEmpleadoRow[]
-) {
-  const desdeCajaMovimientos = movimientos
-    .filter(
-      (item) =>
-        item.tipo === "egreso" &&
-        item.origen_fondo === "prestamo" &&
-        item.naturaleza !== "pago_prestamo"
-    )
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeGastos = gastos
-    .filter((item) => item.origen_fondo === "prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeProveedores = pagosProveedor
-    .filter((item) => item.origen_fondo === "prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeEmpleados = pagosEmpleado
-    .filter((item) => item.origen_fondo === "prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  return desdeCajaMovimientos + desdeGastos + desdeProveedores + desdeEmpleados;
-}
-
-function calcularPagoPrestamo(
-  movimientos: CajaMovimientoRow[],
-  gastos: GastoMontoRow[],
-  pagosProveedor: GastoMontoRow[],
-  pagosEmpleado: PagoEmpleadoRow[]
-) {
-  const desdeCajaMovimientos = movimientos
-    .filter((item) => item.naturaleza === "pago_prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeGastos = gastos
-    .filter((item) => item.naturaleza === "pago_prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeProveedores = pagosProveedor
-    .filter((item) => item.naturaleza === "pago_prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  const desdeEmpleados = pagosEmpleado
-    .filter((item) => item.naturaleza === "pago_prestamo")
-    .reduce((acc, item) => acc + toNumber(item.monto), 0);
-
-  return desdeCajaMovimientos + desdeGastos + desdeProveedores + desdeEmpleados;
-}
 
 export async function getDashboardTecnicoMetricas(
   tecnicoId: string
@@ -431,16 +290,7 @@ export async function getDashboardResumenDinero(
   const [
     cajaMovimientosPeriodoResponse,
     cajaMovimientosMesResponse,
-    ventasPeriodoResponse,
-    ventasMesResponse,
-    movimientosPeriodoResponse,
-    movimientosMesResponse,
-    gastosPeriodoResponse,
-    gastosMesResponse,
-    pagosProveedorPeriodoResponse,
-    pagosProveedorMesResponse,
-    pagosEmpleadosPeriodoResponse,
-    pagosEmpleadosMesResponse,
+    todosMovimientosDineroResponse,
   ] = await Promise.all([
     supabase
       .from("caja_movimientos")
@@ -455,68 +305,8 @@ export async function getDashboardResumenDinero(
       .lte("created_at", rangeMes.end),
 
     supabase
-      .from("ordenes_trabajo")
-      .select("total")
-      .in("estado", ["completada", "entregada"])
-      .gte("created_at", rangePeriodo.start)
-      .lte("created_at", rangePeriodo.end),
-
-    supabase
-      .from("ordenes_trabajo")
-      .select("total")
-      .in("estado", ["completada", "entregada"])
-      .gte("created_at", rangeMes.start)
-      .lte("created_at", rangeMes.end),
-
-    supabase
-      .from("producto_movimientos")
-      .select("cantidad, costo_unitario, total")
-      .eq("tipo", "salida")
-      .gte("created_at", rangePeriodo.start)
-      .lte("created_at", rangePeriodo.end),
-
-    supabase
-      .from("producto_movimientos")
-      .select("cantidad, costo_unitario, total")
-      .eq("tipo", "salida")
-      .gte("created_at", rangeMes.start)
-      .lte("created_at", rangeMes.end),
-
-    supabase
-      .from("gastos")
-      .select("monto, fecha, tipo_gasto, naturaleza, cuenta, origen_fondo")
-      .gte("fecha", rangePeriodo.startDate)
-      .lte("fecha", rangePeriodo.endDate),
-
-    supabase
-      .from("gastos")
-      .select("monto, fecha, tipo_gasto, naturaleza, cuenta, origen_fondo")
-      .gte("fecha", rangeMes.startDate)
-      .lte("fecha", rangeMes.endDate),
-
-    supabase
-      .from("pagos_proveedor")
-      .select("monto, fecha, naturaleza, cuenta, origen_fondo")
-      .gte("fecha", rangePeriodo.startDate)
-      .lte("fecha", rangePeriodo.endDate),
-
-    supabase
-      .from("pagos_proveedor")
-      .select("monto, fecha, naturaleza, cuenta, origen_fondo")
-      .gte("fecha", rangeMes.startDate)
-      .lte("fecha", rangeMes.endDate),
-
-    supabase
-      .from("empleados_pagos")
-      .select("monto, fecha_pago, naturaleza, cuenta, origen_fondo")
-      .gte("fecha_pago", rangePeriodo.startDate)
-      .lte("fecha_pago", rangePeriodo.endDate),
-
-    supabase
-      .from("empleados_pagos")
-      .select("monto, fecha_pago, naturaleza, cuenta, origen_fondo")
-      .gte("fecha_pago", rangeMes.startDate)
-      .lte("fecha_pago", rangeMes.endDate),
+      .from("caja_movimientos")
+      .select("tipo, monto, cuenta, origen_fondo, naturaleza, created_at"),
   ]);
 
   if (cajaMovimientosPeriodoResponse.error) {
@@ -528,204 +318,87 @@ export async function getDashboardResumenDinero(
   }
 
   if (cajaMovimientosMesResponse.error) {
-    console.error("Error caja movimientos mes:", cajaMovimientosMesResponse.error);
+    console.error(
+      "Error caja movimientos mes:",
+      cajaMovimientosMesResponse.error
+    );
     throw new Error("No se pudieron obtener los movimientos de caja del mes");
   }
 
-  if (ventasPeriodoResponse.error) {
-    console.error("Error ventas período:", ventasPeriodoResponse.error);
-    throw new Error("No se pudieron obtener las ventas del período");
-  }
-
-  if (ventasMesResponse.error) {
-    console.error("Error ventas mes:", ventasMesResponse.error);
-    throw new Error("No se pudieron obtener las ventas del mes");
-  }
-
-  if (movimientosPeriodoResponse.error) {
-    console.error("Error costos período:", movimientosPeriodoResponse.error);
-    throw new Error("No se pudieron obtener los costos del período");
-  }
-
-  if (movimientosMesResponse.error) {
-    console.error("Error costos mes:", movimientosMesResponse.error);
-    throw new Error("No se pudieron obtener los costos del mes");
-  }
-
-  if (gastosPeriodoResponse.error) {
-    console.error("Error gastos período:", gastosPeriodoResponse.error);
-    throw new Error("No se pudieron obtener los gastos del período");
-  }
-
-  if (gastosMesResponse.error) {
-    console.error("Error gastos mes:", gastosMesResponse.error);
-    throw new Error("No se pudieron obtener los gastos del mes");
-  }
-
-  if (pagosProveedorPeriodoResponse.error) {
+  if (todosMovimientosDineroResponse.error) {
     console.error(
-      "Error pagos proveedor período:",
-      pagosProveedorPeriodoResponse.error
+      "Error movimientos globales de dinero:",
+      todosMovimientosDineroResponse.error
     );
-    throw new Error("No se pudieron obtener los pagos a proveedor del período");
-  }
-
-  if (pagosProveedorMesResponse.error) {
-    console.error("Error pagos proveedor mes:", pagosProveedorMesResponse.error);
-    throw new Error("No se pudieron obtener los pagos a proveedor del mes");
-  }
-
-  if (pagosEmpleadosPeriodoResponse.error) {
-    console.error(
-      "Error pagos empleados período:",
-      pagosEmpleadosPeriodoResponse.error
-    );
-    throw new Error("No se pudieron obtener los pagos a empleados del período");
-  }
-
-  if (pagosEmpleadosMesResponse.error) {
-    console.error("Error pagos empleados mes:", pagosEmpleadosMesResponse.error);
-    throw new Error("No se pudieron obtener los pagos a empleados del mes");
+    throw new Error("No se pudieron obtener los saldos reales de dinero");
   }
 
   const cajaMovimientosPeriodo = (cajaMovimientosPeriodoResponse.data ??
     []) as CajaMovimientoRow[];
 
-  const ventasPeriodoRows = (ventasPeriodoResponse.data ?? []) as VentaTotalRow[];
-  const ventasMesRows = (ventasMesResponse.data ?? []) as VentaTotalRow[];
+  const cajaMovimientosMes = (cajaMovimientosMesResponse.data ??
+    []) as CajaMovimientoRow[];
 
-  const costosPeriodoRows = (movimientosPeriodoResponse.data ??
-    []) as MovimientoCostoRow[];
-  const costosMesRows = (movimientosMesResponse.data ??
-    []) as MovimientoCostoRow[];
-
-  const gastosPeriodoRows = (gastosPeriodoResponse.data ?? []) as GastoMontoRow[];
-  const gastosMesRows = (gastosMesResponse.data ?? []) as GastoMontoRow[];
-
-  const pagosProveedorPeriodoRows = (pagosProveedorPeriodoResponse.data ??
-    []) as GastoMontoRow[];
-  const pagosProveedorMesRows = (pagosProveedorMesResponse.data ??
-    []) as GastoMontoRow[];
-
-  const pagosEmpleadosPeriodoRows = (pagosEmpleadosPeriodoResponse.data ??
-    []) as PagoEmpleadoRow[];
-  const pagosEmpleadosMesRows = (pagosEmpleadosMesResponse.data ??
-    []) as PagoEmpleadoRow[];
-
-  const { data: cajaAbierta } = await supabase
-    .from("cajas")
-    .select("id, monto_apertura")
-    .eq("estado", "abierta")
-    .maybeSingle();
-
-  let saldoCaja = 0;
-
-  if (cajaAbierta) {
-    const { data: movimientosCajaActual } = await supabase
-      .from("caja_movimientos")
-      .select("tipo, monto, cuenta")
-      .eq("caja_id", cajaAbierta.id);
-
-    const movimientos = (movimientosCajaActual ?? []) as CajaMovimientoRow[];
-
-    saldoCaja = calcularSaldoPorCuenta(
-      movimientos,
-      "caja",
-      toNumber(cajaAbierta.monto_apertura)
-    );
-  }
-  const saldoBanco = calcularSaldoPorCuenta(cajaMovimientosPeriodo, "banco");
-  const saldoDeuna = calcularSaldoPorCuenta(cajaMovimientosPeriodo, "deuna");
-
-  let saldoBoveda = 0;
-
-  if (cajaAbierta) {
-    const { data: movimientosCajaActual } = await supabase
-      .from("caja_movimientos")
-      .select("tipo, monto, cuenta")
-      .eq("caja_id", cajaAbierta.id);
-
-    const movimientos = (movimientosCajaActual ?? []) as CajaMovimientoRow[];
-
-    saldoBoveda = calcularSaldoPorCuenta(movimientos, "boveda");
-  }
-  const saldoTarjetaPorCobrar = calcularSaldoPorCuenta(
-    cajaMovimientosPeriodo,
-    "tarjeta_por_cobrar"
-  );
+  const {
+    saldoCaja,
+    saldoBanco,
+    saldoDeuna,
+    saldoBoveda,
+    saldoTarjetaPorCobrar,
+    saldoTotalLiquido,
+  } = await getSaldosDineroActuales();
 
   const dineroPrestamoIngresado = calcularPrestamoIngresado(cajaMovimientosPeriodo);
-  const dineroPrestamoUsado = calcularPrestamoUsado(
-    cajaMovimientosPeriodo,
-    gastosPeriodoRows,
-    pagosProveedorPeriodoRows,
-    pagosEmpleadosPeriodoRows
-  );
-  const pagoPrestamo = calcularPagoPrestamo(
-    cajaMovimientosPeriodo,
-    gastosPeriodoRows,
-    pagosProveedorPeriodoRows,
-    pagosEmpleadosPeriodoRows
-  );
 
-  const ventasPeriodo = sumBy(ventasPeriodoRows, (item) => toNumber(item.total));
-  const ventasMes = sumBy(ventasMesRows, (item) => toNumber(item.total));
-
-  const costosPeriodo = sumBy(costosPeriodoRows, (item) => {
-    const total = toNumber(item.total);
-    if (total > 0) return total;
-    return toNumber(item.cantidad) * toNumber(item.costo_unitario);
-  });
-
-  const costosMes = sumBy(costosMesRows, (item) => {
-    const total = toNumber(item.total);
-    if (total > 0) return total;
-    return toNumber(item.cantidad) * toNumber(item.costo_unitario);
-  });
-
-  const gastosOperativosPeriodo = sumBy(
-    gastosPeriodoRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const dineroPrestamoUsado = sumBy(
+    cajaMovimientosPeriodo.filter(
+      (item) =>
+        item.tipo === "egreso" &&
+        item.origen_fondo === "prestamo" &&
+        item.naturaleza !== "pago_prestamo"
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const gastosOperativosMes = sumBy(
-    gastosMesRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const pagoPrestamo = sumBy(
+    cajaMovimientosPeriodo.filter(
+      (item) => item.tipo === "egreso" && item.naturaleza === "pago_prestamo"
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const pagosProveedorOperativosPeriodo = sumBy(
-    pagosProveedorPeriodoRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const cobrosOperativosPeriodo = sumBy(
+    cajaMovimientosPeriodo.filter(
+      (item) =>
+        item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo"
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const pagosProveedorOperativosMes = sumBy(
-    pagosProveedorMesRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const cobrosOperativosMes = sumBy(
+    cajaMovimientosMes.filter(
+      (item) =>
+        item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo"
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const pagosEmpleadosOperativosPeriodo = sumBy(
-    pagosEmpleadosPeriodoRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const egresosOperativosPeriodo = sumBy(
+    cajaMovimientosPeriodo.filter(
+      (item) => item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const pagosEmpleadosOperativosMes = sumBy(
-    pagosEmpleadosMesRows.filter((item) => isNaturalezaOperativa(item.naturaleza)),
+  const egresosOperativosMes = sumBy(
+    cajaMovimientosMes.filter(
+      (item) => item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+    ),
     (item) => toNumber(item.monto)
   );
 
-  const utilidadRealPeriodo =
-    ventasPeriodo -
-    costosPeriodo -
-    gastosOperativosPeriodo -
-    pagosProveedorOperativosPeriodo -
-    pagosEmpleadosOperativosPeriodo;
-
-  const utilidadRealMes =
-    ventasMes -
-    costosMes -
-    gastosOperativosMes -
-    pagosProveedorOperativosMes -
-    pagosEmpleadosOperativosMes;
+  const utilidadRealPeriodo = cobrosOperativosPeriodo - egresosOperativosPeriodo;
+  const utilidadRealMes = cobrosOperativosMes - egresosOperativosMes;
 
   return {
     saldoCaja,
@@ -733,7 +406,7 @@ export async function getDashboardResumenDinero(
     saldoDeuna,
     saldoBoveda,
     saldoTarjetaPorCobrar,
-    saldoTotalLiquido: saldoCaja + saldoBanco + saldoDeuna + saldoBoveda,
+    saldoTotalLiquido,
     dineroPrestamoDisponible:
       dineroPrestamoIngresado - dineroPrestamoUsado - pagoPrestamo,
     dineroPrestamoIngresado,
@@ -752,24 +425,12 @@ export async function getDashboardMetricas(
   const rangePeriodo = getDashboardRange(periodo);
   const rangeMes = getDashboardRange("30d");
 
-  const startPeriodo = rangePeriodo.startDate;
-  const endPeriodo = rangePeriodo.endDate;
-
-  const startMes = rangeMes.startDate;
-  const endMes = rangeMes.endDate;
-
   const [
     ordenesAbiertasResponse,
-    ventasPeriodoResponse,
-    ventasMesResponse,
+    ordenesCerradasPeriodoResponse,
+    ordenesCerradasMesResponse,
     movimientosPeriodoResponse,
     movimientosMesResponse,
-    gastosPeriodoResponse,
-    gastosMesResponse,
-    pagosPeriodoResponse,
-    pagosMesResponse,
-    pagosProveedorPeriodoResponse,
-    pagosProveedorMesResponse,
   ] = await Promise.all([
     supabase
       .from("ordenes_trabajo")
@@ -780,65 +441,27 @@ export async function getDashboardMetricas(
       .from("ordenes_trabajo")
       .select("id, total")
       .in("estado", ["completada", "entregada"])
-      .gte("fecha", startPeriodo)
-      .lte("fecha", endPeriodo),
+      .gte("fecha", rangePeriodo.startDate)
+      .lte("fecha", rangePeriodo.endDate),
 
     supabase
       .from("ordenes_trabajo")
       .select("id, total")
       .in("estado", ["completada", "entregada"])
-      .gte("fecha", startMes)
-      .lte("fecha", endMes),
+      .gte("fecha", rangeMes.startDate)
+      .lte("fecha", rangeMes.endDate),
 
     supabase
-      .from("producto_movimientos")
-      .select("cantidad, costo_unitario, total")
-      .eq("tipo", "salida")
+      .from("caja_movimientos")
+      .select("tipo, monto, naturaleza, created_at")
       .gte("created_at", rangePeriodo.start)
       .lte("created_at", rangePeriodo.end),
 
     supabase
-      .from("producto_movimientos")
-      .select("cantidad, costo_unitario, total")
-      .eq("tipo", "salida")
+      .from("caja_movimientos")
+      .select("tipo, monto, naturaleza, created_at")
       .gte("created_at", rangeMes.start)
       .lte("created_at", rangeMes.end),
-
-    supabase
-      .from("gastos")
-      .select("monto, fecha, tipo_gasto, naturaleza")
-      .gte("fecha", startPeriodo)
-      .lte("fecha", endPeriodo),
-
-    supabase
-      .from("gastos")
-      .select("monto, fecha, tipo_gasto, naturaleza")
-      .gte("fecha", startMes)
-      .lte("fecha", endMes),
-
-    supabase
-      .from("empleados_pagos")
-      .select("monto, fecha_pago, naturaleza")
-      .gte("fecha_pago", startPeriodo)
-      .lte("fecha_pago", endPeriodo),
-
-    supabase
-      .from("empleados_pagos")
-      .select("monto, fecha_pago, naturaleza")
-      .gte("fecha_pago", startMes)
-      .lte("fecha_pago", endMes),
-
-    supabase
-      .from("pagos_proveedor")
-      .select("monto, fecha, naturaleza")
-      .gte("fecha", startPeriodo)
-      .lte("fecha", endPeriodo),
-
-    supabase
-      .from("pagos_proveedor")
-      .select("monto, fecha, naturaleza")
-      .gte("fecha", startMes)
-      .lte("fecha", endMes),
   ]);
 
   if (ordenesAbiertasResponse.error) {
@@ -846,210 +469,119 @@ export async function getDashboardMetricas(
     throw new Error("No se pudieron obtener las órdenes abiertas");
   }
 
-  if (ventasPeriodoResponse.error) {
-    console.error("Error ventas período:", ventasPeriodoResponse.error);
-    throw new Error("No se pudieron obtener las ventas del período");
+  if (ordenesCerradasPeriodoResponse.error) {
+    console.error(
+      "Error órdenes cerradas período:",
+      ordenesCerradasPeriodoResponse.error
+    );
+    throw new Error("No se pudieron obtener las órdenes cerradas del período");
   }
 
-  if (ventasMesResponse.error) {
-    console.error("Error ventas mes:", ventasMesResponse.error);
-    throw new Error("No se pudieron obtener las ventas del mes");
+  if (ordenesCerradasMesResponse.error) {
+    console.error(
+      "Error órdenes cerradas mes:",
+      ordenesCerradasMesResponse.error
+    );
+    throw new Error("No se pudieron obtener las órdenes cerradas del mes");
   }
 
   if (movimientosPeriodoResponse.error) {
-    console.error("Error movimientos período:", movimientosPeriodoResponse.error);
-    throw new Error("No se pudieron obtener los movimientos del período");
+    console.error(
+      "Error movimientos caja período:",
+      movimientosPeriodoResponse.error
+    );
+    throw new Error("No se pudieron obtener los movimientos de caja del período");
   }
 
   if (movimientosMesResponse.error) {
-    console.error("Error movimientos mes:", movimientosMesResponse.error);
-    throw new Error("No se pudieron obtener los movimientos del mes");
-  }
-
-  if (gastosPeriodoResponse.error) {
-    console.error("Error gastos período:", gastosPeriodoResponse.error);
-    throw new Error("No se pudieron obtener los gastos del período");
-  }
-
-  if (gastosMesResponse.error) {
-    console.error("Error gastos mes:", gastosMesResponse.error);
-    throw new Error("No se pudieron obtener los gastos del mes");
-  }
-
-  if (pagosPeriodoResponse.error) {
-    logSupabaseError("Error pagos empleados período:", pagosPeriodoResponse.error);
-    throw new Error("No se pudieron obtener los pagos del período");
-  }
-
-  if (pagosMesResponse.error) {
-    logSupabaseError("Error pagos empleados mes:", pagosMesResponse.error);
-    throw new Error("No se pudieron obtener los pagos del mes");
-  }
-
-  if (pagosProveedorPeriodoResponse.error) {
-    console.error(
-      "Error pagos proveedor período:",
-      pagosProveedorPeriodoResponse.error
-    );
-    throw new Error("No se pudieron obtener los pagos a proveedor del período");
-  }
-
-  if (pagosProveedorMesResponse.error) {
-    console.error("Error pagos proveedor mes:", pagosProveedorMesResponse.error);
-    throw new Error("No se pudieron obtener los pagos a proveedor del mes");
+    console.error("Error movimientos caja mes:", movimientosMesResponse.error);
+    throw new Error("No se pudieron obtener los movimientos de caja del mes");
   }
 
   const ordenesAbiertas = ordenesAbiertasResponse.count ?? 0;
-
-  const ventasPeriodoRows = (ventasPeriodoResponse.data ?? []) as {
+  const ordenesCerradasPeriodoRows = (ordenesCerradasPeriodoResponse.data ?? []) as {
     id: string;
     total: number | null;
   }[];
 
-  const ventasMesRows = (ventasMesResponse.data ?? []) as {
-    id: string;
-    total: number | null;
-  }[];
+  const movimientosPeriodo = (movimientosPeriodoResponse.data ?? []) as CajaMovimientoRow[];
+  const movimientosMes = (movimientosMesResponse.data ?? []) as CajaMovimientoRow[];
 
-  const [ingresosPeriodoCajaResponse, ingresosMesCajaResponse] = await Promise.all([
-    supabase
-      .from("caja_movimientos")
-      .select("monto")
-      .eq("tipo", "ingreso")
-      .in("naturaleza", ["ingreso_operativo", "orden", "venta"])
-      .gte("created_at", `${startPeriodo}T00:00:00`)
-      .lte("created_at", `${endPeriodo}T23:59:59`),
-
-    supabase
-      .from("caja_movimientos")
-      .select("monto")
-      .eq("tipo", "ingreso")
-      .in("naturaleza", ["ingreso_operativo", "orden", "venta"])
-      .gte("created_at", `${startMes}T00:00:00`)
-      .lte("created_at", `${endMes}T23:59:59`),
-  ]);
-
-  if (ingresosPeriodoCajaResponse.error) {
-    console.error("Error ingresos caja período:", ingresosPeriodoCajaResponse.error);
-    throw new Error("No se pudieron obtener los ingresos reales del período");
-  }
-
-  if (ingresosMesCajaResponse.error) {
-    console.error("Error ingresos caja mes:", ingresosMesCajaResponse.error);
-    throw new Error("No se pudieron obtener los ingresos reales del mes");
-  }
-
-  const movimientosPeriodo = (movimientosPeriodoResponse.data ??
-    []) as MovimientoCostoRow[];
-  const movimientosMes = (movimientosMesResponse.data ??
-    []) as MovimientoCostoRow[];
-
-  const gastosPeriodo = (gastosPeriodoResponse.data ?? []) as GastoMontoRow[];
-  const gastosMes = (gastosMesResponse.data ?? []) as GastoMontoRow[];
-
-  const pagosPeriodo = (pagosPeriodoResponse.data ?? []) as PagoEmpleadoRow[];
-  const pagosMes = (pagosMesResponse.data ?? []) as PagoEmpleadoRow[];
-
-  const pagosProveedorPeriodo = (pagosProveedorPeriodoResponse.data ??
-    []) as GastoMontoRow[];
-  const pagosProveedorMes = (pagosProveedorMesResponse.data ??
-    []) as GastoMontoRow[];
-
-  const ventasPeriodo = sumBy(
-    (ingresosPeriodoCajaResponse.data ?? []) as Array<{ monto: number | null }>,
-    (item) => toNumber(item.monto)
-  );
-
-  const ventasMes = sumBy(
-    (ingresosMesCajaResponse.data ?? []) as Array<{ monto: number | null }>,
-    (item) => toNumber(item.monto)
-  );
-
-  const costosPeriodo = sumBy(movimientosPeriodo, (item) => {
-    const total = toNumber(item.total);
-    if (total > 0) return total;
-    return toNumber(item.cantidad) * toNumber(item.costo_unitario);
-  });
-
-  const costosMes = sumBy(movimientosMes, (item) => {
-    const total = toNumber(item.total);
-    if (total > 0) return total;
-    return toNumber(item.cantidad) * toNumber(item.costo_unitario);
-  });
-
-  const gastosTotalPeriodo = sumBy(
-    gastosPeriodo.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const gastosTotalMes = sumBy(
-    gastosMes.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const pagosTotalPeriodo = sumBy(
-    pagosPeriodo.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const pagosTotalMes = sumBy(
-    pagosMes.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const pagosProveedorTotalPeriodo = sumBy(
-    pagosProveedorPeriodo.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const pagosProveedorTotalMes = sumBy(
-    pagosProveedorMes.filter((item) => isNaturalezaOperativa(item.naturaleza)),
-    (item) => toNumber(item.monto)
-  );
-
-  const gastosFijosMes = sumBy(
-    gastosMes.filter(
+  const ingresosPeriodo = sumBy(
+    movimientosPeriodo.filter(
       (item) =>
-        item.tipo_gasto === "fijo" && isNaturalezaOperativa(item.naturaleza)
+        item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo"
     ),
     (item) => toNumber(item.monto)
   );
 
-  const utilidadPeriodo =
-    ventasPeriodo -
-    costosPeriodo -
-    gastosTotalPeriodo -
-    pagosTotalPeriodo;
+  const ingresosMes = sumBy(
+    movimientosMes.filter(
+      (item) =>
+        item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo"
+    ),
+    (item) => toNumber(item.monto)
+  );
 
-  const utilidadMes =
-    ventasMes - costosMes - gastosTotalMes - pagosTotalMes;
+  const egresosOperativosPeriodo = sumBy(
+    movimientosPeriodo.filter(
+      (item) =>
+        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+    ),
+    (item) => toNumber(item.monto)
+  );
 
-  const margenPeriodo = calcMargen(ventasPeriodo, utilidadPeriodo);
-  const margenMes = calcMargen(ventasMes, utilidadMes);
+  const egresosOperativosMes = sumBy(
+    movimientosMes.filter(
+      (item) =>
+        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+    ),
+    (item) => toNumber(item.monto)
+  );
 
-  const ordenesCerradasPeriodo = ventasPeriodoRows.length;
+  const utilidadPeriodo = ingresosPeriodo - egresosOperativosPeriodo;
+  const utilidadMes = ingresosMes - egresosOperativosMes;
+
+  const margenPeriodo = calcMargen(ingresosPeriodo, utilidadPeriodo);
+  const margenMes = calcMargen(ingresosMes, utilidadMes);
+
+  const ordenesCerradasPeriodo = ordenesCerradasPeriodoRows.length;
+
+  const totalOrdenesCerradasPeriodo = sumBy(
+    ordenesCerradasPeriodoRows,
+    (item) => toNumber(item.total)
+  );
+
   const ticketPromedio =
-    ordenesCerradasPeriodo > 0 ? ventasPeriodo / ordenesCerradasPeriodo : 0;
+    ordenesCerradasPeriodo > 0
+      ? totalOrdenesCerradasPeriodo / ordenesCerradasPeriodo
+      : 0;
+  const puntoEquilibrioMes = sumBy(
+    movimientosMes.filter(
+      (item) =>
+        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+    ),
+    (item) => toNumber(item.monto)
+  );
 
   return {
     ordenes_abiertas: ordenesAbiertas,
 
-    ventas_hoy: ventasPeriodo,
-    costos_hoy: costosPeriodo,
-    gastos_hoy:
-      gastosTotalPeriodo + pagosTotalPeriodo,
+    ventas_hoy: ingresosPeriodo,
+    costos_hoy: 0,
+    gastos_hoy: egresosOperativosPeriodo,
     utilidad_hoy: utilidadPeriodo,
     margen_hoy: margenPeriodo,
 
-    ventas_mes: ventasMes,
-    costos_mes: costosMes,
-    gastos_mes: gastosTotalMes + pagosTotalMes,
+    ventas_mes: ingresosMes,
+    costos_mes: 0,
+    gastos_mes: egresosOperativosMes,
     utilidad_mes: utilidadMes,
     margen_mes: margenMes,
 
     ticket_promedio: ticketPromedio,
     ordenes_cerradas_periodo: ordenesCerradasPeriodo,
-    punto_equilibrio: gastosFijosMes,
+    punto_equilibrio: puntoEquilibrioMes,
   };
 }
 
@@ -1086,7 +618,7 @@ export async function getServiciosTop(): Promise<DashboardServicioTop[]> {
   for (const item of rows) {
     const orden = normalizeRelation(item.ordenes_trabajo);
 
-    if (!orden || orden.estado === "cancelada") {
+    if (!orden || !["completada", "entregada"].includes(orden.estado ?? "")) {
       continue;
     }
 
@@ -1137,6 +669,7 @@ export async function getProximosMantenimientos(): Promise<
         modelo
       )
     `)
+    .in("estado", ["completada", "entregada"])
     .not("proximo_mantenimiento_fecha", "is", null)
     .gte("proximo_mantenimiento_fecha", today)
     .order("proximo_mantenimiento_fecha", { ascending: true })
@@ -1196,19 +729,20 @@ export async function getProductosRentables(
   const supabase = await createClient();
   const range = getDashboardRange(periodo);
 
+
   const { data, error } = await supabase
     .from("producto_movimientos")
     .select(`
-      producto_id,
-      cantidad,
-      costo_unitario,
-      precio_unitario,
-      created_at,
-      productos (
-        id,
-        nombre
-      )
-    `)
+    producto_id,
+    cantidad,
+    costo_unitario,
+    precio_unitario,
+    created_at,
+    productos (
+      id,
+      nombre
+    )
+  `)
     .eq("tipo", "salida")
     .gte("created_at", range.start)
     .lte("created_at", range.end)
@@ -1283,28 +817,16 @@ export async function getDashboardAlertas(
       tipo: "error",
       titulo: "Utilidad negativa en el período",
       descripcion:
-        "En el período seleccionado los costos y gastos superan las ventas. Revisa precios, gastos o productos vendidos.",
+        "En el período seleccionado los egresos operativos superan los ingresos. Revisa cobros, gastos y salidas de dinero.",
     });
   }
 
   if (Number(metricas.gastos_hoy) > Number(metricas.ventas_hoy)) {
     alertas.push({
       tipo: "error",
-      titulo: "Gastos del período por encima de ventas",
+      titulo: "Egresos del período por encima de ingresos",
       descripcion:
-        "Los gastos registrados en el período seleccionado son mayores que las ventas.",
-    });
-  }
-
-  if (
-    Number(metricas.costos_hoy) > Number(metricas.ventas_hoy) &&
-    Number(metricas.ventas_hoy) > 0
-  ) {
-    alertas.push({
-      tipo: "warning",
-      titulo: "Costos del período muy altos",
-      descripcion:
-        "El costo de los productos vendidos en el período supera las ventas registradas.",
+        "Los egresos operativos registrados en el período seleccionado son mayores que los ingresos.",
     });
   }
 
@@ -1361,7 +883,7 @@ export async function getDashboardAccionesSugeridas(
       tipo: "error",
       titulo: "Revisar utilidad negativa del período",
       descripcion:
-        "Reduce gastos del período o revisa precios de productos y servicios porque el negocio perdió dinero en el rango seleccionado.",
+        "Reduce egresos operativos o revisa tus cobros, porque en el rango seleccionado salió más dinero del que entró.",
     });
   }
 
@@ -1371,9 +893,9 @@ export async function getDashboardAccionesSugeridas(
   ) {
     acciones.push({
       tipo: "warning",
-      titulo: "Controlar gastos del período",
+      titulo: "Controlar egresos del período",
       descripcion:
-        "Tus gastos del período superan el 50% de las ventas. Revisa pagos operativos, compras y egresos no urgentes.",
+        "Tus egresos operativos del período superan el 50% de los ingresos. Revisa pagos, gastos y salidas no urgentes.",
     });
   }
 
@@ -1423,7 +945,7 @@ export async function getDashboardAccionesSugeridas(
       tipo: "info",
       titulo: "Mantener estrategia actual",
       descripcion:
-        "No se detectaron acciones urgentes. Sigue registrando ventas, costos y gastos para mejorar las recomendaciones.",
+        "No se detectaron acciones urgentes. Sigue registrando ingresos, egresos y movimientos reales para mejorar las recomendaciones.",
     });
   }
 
@@ -1445,51 +967,21 @@ export async function getDashboardSerieFinanciera(
     fechaActual.setDate(fechaActual.getDate() + 1);
   }
 
-  const [ventasResponse, costosResponse, gastosResponse] = await Promise.all([
-    supabase
-      .from("ordenes_trabajo")
-      .select("fecha, total, estado")
-      .in("estado", ["completada", "entregada"])
-      .gte("fecha", range.startDate)
-      .lte("fecha", range.endDate),
+  const { data, error } = await supabase
+    .from("caja_movimientos")
+    .select("created_at, tipo, monto, naturaleza")
+    .gte("created_at", range.start)
+    .lte("created_at", range.end);
 
-    supabase
-      .from("producto_movimientos")
-      .select("created_at, cantidad, costo_unitario, total")
-      .eq("tipo", "salida")
-      .gte("created_at", range.start)
-      .lte("created_at", range.end),
-
-    supabase
-      .from("gastos")
-      .select("fecha, monto, naturaleza")
-      .gte("fecha", range.startDate)
-      .lte("fecha", range.endDate),
-  ]);
-
-  if (ventasResponse.error) {
+  if (error) {
     console.error(
-      "Error cargando serie de ventas:",
-      ventasResponse.error.message
+      "Error cargando serie financiera desde caja_movimientos:",
+      error.message
     );
-    throw new Error("No se pudo cargar la serie de ventas");
+    throw new Error("No se pudo cargar la serie financiera");
   }
 
-  if (costosResponse.error) {
-    console.error(
-      "Error cargando serie de costos:",
-      costosResponse.error.message
-    );
-    throw new Error("No se pudo cargar la serie de costos");
-  }
-
-  if (gastosResponse.error) {
-    console.error(
-      "Error cargando serie de gastos:",
-      gastosResponse.error.message
-    );
-    throw new Error("No se pudo cargar la serie de gastos");
-  }
+  const movimientos = (data ?? []) as CajaMovimientoRow[];
 
   const base = new Map<string, DashboardSerieFinanciera>();
 
@@ -1503,41 +995,28 @@ export async function getDashboardSerieFinanciera(
     });
   }
 
-  for (const item of ventasResponse.data ?? []) {
-    const fecha = String(item.fecha).split("T")[0];
+  for (const item of movimientos) {
+    const fecha = String(item.created_at).split("T")[0];
     const actual = base.get(fecha);
 
-    if (actual) {
-      actual.ventas += Number(item.total ?? 0);
+    if (!actual) continue;
+
+    const monto = Number(item.monto ?? 0);
+
+    if (item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo") {
+      actual.ventas += monto;
+      continue;
     }
-  }
 
-  for (const item of (costosResponse.data ?? []) as MovimientoCostoRow[]) {
-    const fecha = String((item as { created_at?: string | null }).created_at).split("T")[0];
-    const actual = base.get(fecha);
-
-    if (actual) {
-      const total = Number(item.total ?? 0);
-      actual.costos +=
-        total > 0
-          ? total
-          : Number(item.cantidad ?? 0) * Number(item.costo_unitario ?? 0);
-    }
-  }
-
-  for (const item of (gastosResponse.data ?? []) as GastoMontoRow[]) {
-    if (!isNaturalezaOperativa(item.naturaleza)) continue;
-
-    const fecha = String(item.fecha).split("T")[0];
-    const actual = base.get(fecha);
-
-    if (actual) {
-      actual.gastos += Number(item.monto ?? 0);
+    if (item.tipo === "egreso" && item.naturaleza === "gasto_operativo") {
+      actual.gastos += monto;
+      actual.costos += monto;
+      continue;
     }
   }
 
   for (const item of base.values()) {
-    item.utilidad = item.ventas - item.costos - item.gastos;
+    item.utilidad = item.ventas - item.gastos;
   }
 
   return Array.from(base.values());
@@ -1557,7 +1036,8 @@ export async function getClientesInactivos(
       apellidos,
       telefono,
       ordenes_trabajo (
-        created_at
+        created_at,
+        estado
       )
     `);
 
@@ -1570,11 +1050,16 @@ export async function getClientesInactivos(
     (data ?? []) as ClienteInactivoRow[]
   )
     .filter((cliente) => {
-      if (!cliente.ordenes_trabajo || cliente.ordenes_trabajo.length === 0) {
+      const ordenesValidas =
+        cliente.ordenes_trabajo?.filter((o) =>
+          ["completada", "entregada"].includes(o.estado ?? "")
+        ) ?? [];
+
+      if (ordenesValidas.length === 0) {
         return true;
       }
 
-      const ultimaOrden = cliente.ordenes_trabajo
+      const ultimaOrden = ordenesValidas
         .map((o) => new Date(o.created_at))
         .sort((a, b) => b.getTime() - a.getTime())[0];
 

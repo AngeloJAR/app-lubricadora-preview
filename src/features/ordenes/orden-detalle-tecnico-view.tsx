@@ -22,6 +22,11 @@ import {
   getEstadoTareaLabel,
 } from "./orden-detalle-shared";
 
+import {
+  puedeFinalizarTrabajoOrdenUI,
+  puedeIniciarTrabajoOrdenUI,
+} from "@/lib/core/ui/permisos-ordenes";
+
 type OrdenTareaDetalle = OrdenTareaTecnico & {
   tecnico: {
     id: string;
@@ -39,6 +44,7 @@ export function OrdenDetalleTecnicoView({
   const [loadingAction, setLoadingAction] = useState(false);
   const [errorAction, setErrorAction] = useState("");
   const [successAction, setSuccessAction] = useState("");
+
 
   const [tareas, setTareas] = useState<OrdenTareaDetalle[]>([]);
   const [loadingTareas, setLoadingTareas] = useState(true);
@@ -71,10 +77,14 @@ export function OrdenDetalleTecnicoView({
   const tareasEnProceso = tareas.filter(
     (tarea) => tarea.estado === "en_proceso"
   ).length;
-
+  const rol = "tecnico" as const;
   const todasLasTareasCompletadas =
     tareasTotales > 0 && tareasCompletadas === tareasTotales;
+  const puedeIniciarTrabajo = puedeIniciarTrabajoOrdenUI(rol, orden.estado);
 
+  const puedeFinalizarTrabajo =
+    puedeFinalizarTrabajoOrdenUI(rol, orden.estado) &&
+    todasLasTareasCompletadas;
   const reloadTareas = useCallback(async () => {
     try {
       setLoadingTareas(true);
@@ -98,7 +108,10 @@ export function OrdenDetalleTecnicoView({
       setLoadingAction(true);
       setErrorAction("");
       setSuccessAction("");
-
+      if (!puedeIniciarTrabajoOrdenUI(rol, orden.estado)) {
+        setErrorAction("La orden no está lista para iniciar.");
+        return;
+      }
       await iniciarTrabajoOrden(orden.id);
       await reloadTareas();
 
@@ -114,8 +127,8 @@ export function OrdenDetalleTecnicoView({
 
   async function handleFinalizarTrabajo() {
     try {
-      if (orden.estado !== "en_proceso") {
-        setErrorAction("La orden no está en proceso.");
+      if (!puedeFinalizarTrabajoOrdenUI(rol, orden.estado)) {
+        setErrorAction("La orden no está lista para finalizar.");
         return;
       }
       if (!todasLasTareasCompletadas) {
@@ -185,8 +198,8 @@ export function OrdenDetalleTecnicoView({
         rightContent={
           <>
             <div className="flex flex-wrap justify-end gap-2">
-              {orden.estado === "pendiente" ? (
-                <button
+              {puedeIniciarTrabajo ?
+                (<button
                   type="button"
                   onClick={handleIniciarTrabajo}
                   disabled={
@@ -198,9 +211,9 @@ export function OrdenDetalleTecnicoView({
                 >
                   {loadingAction ? "Procesando..." : "Iniciar trabajo"}
                 </button>
-              ) : null}
+                ) : null}
 
-              {orden.estado === "en_proceso" && todasLasTareasCompletadas ? (
+              {puedeFinalizarTrabajo ? (
                 <button
                   type="button"
                   onClick={handleFinalizarTrabajo}

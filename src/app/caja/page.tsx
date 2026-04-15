@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { AppShell } from "@/components/layout/app-shell";
 import { createClient } from "@/lib/supabase/server";
+import { getSaldosDineroActuales } from "@/lib/core/finanzas/saldos";
 
 import {
   abrirCaja,
@@ -12,7 +13,7 @@ import {
   getCajaResumenActual,
   getCajasRecientes,
   registrarMovimientoCaja,
-  transferirCajaABoveda,
+  transferirEntreCuentas,
 } from "@/features/caja/actions";
 
 function formatCurrency(value: number | null | undefined) {
@@ -162,12 +163,13 @@ function ResumenCard({
 export default async function CajaPage() {
   await requireCajaPageAccess();
 
-  const [cajaAbierta, resumenActual, resumenBoveda, cajasRecientes] =
+  const [cajaAbierta, resumenActual, resumenBoveda, cajasRecientes, saldosActuales] =
     await Promise.all([
       getCajaAbierta(),
       getCajaResumenActual(),
       getBovedaResumenActual(),
       getCajasRecientes(10),
+      getSaldosDineroActuales(),
     ]);
   const movimientos = cajaAbierta ? await getCajaMovimientos(cajaAbierta.id) : [];
 
@@ -197,25 +199,39 @@ export default async function CajaPage() {
     const origen_fondo = String(formData.get("origen_fondo") ?? "negocio");
     const naturaleza = String(formData.get("naturaleza") ?? "gasto_operativo");
 
-    const esTransferenciaABoveda =
-      tipo === "egreso" &&
-      cuenta === "boveda" &&
-      naturaleza === "transferencia_interna";
+    await registrarMovimientoCaja({
+      tipo,
+      categoria: categoria as any,
+      monto,
+      descripcion,
+      metodo_pago: metodo_pago as any,
+      cuenta: cuenta as any,
+      origen_fondo: origen_fondo as any,
+      naturaleza: naturaleza as any,
+    });
 
-    if (esTransferenciaABoveda) {
-      await transferirCajaABoveda(monto, descripcion);
-    } else {
-      await registrarMovimientoCaja({
-        tipo,
-        categoria: categoria as any,
-        monto,
-        descripcion,
-        metodo_pago: metodo_pago as any,
-        cuenta: cuenta as any,
-        origen_fondo: origen_fondo as any,
-        naturaleza: naturaleza as any,
-      });
-    }
+    revalidatePath("/caja");
+  }
+  async function handleTransferirEntreCuentas(formData: FormData) {
+    "use server";
+
+    const cuenta_origen = String(
+      formData.get("cuenta_origen_transferencia") ?? "caja"
+    ) as "caja" | "boveda" | "banco" | "deuna";
+
+    const cuenta_destino = String(
+      formData.get("cuenta_destino_transferencia") ?? "boveda"
+    ) as "caja" | "boveda" | "banco" | "deuna";
+
+    const monto = String(formData.get("monto_transferencia") ?? "");
+    const descripcion = String(formData.get("descripcion_transferencia") ?? "");
+
+    await transferirEntreCuentas({
+      cuenta_origen,
+      cuenta_destino,
+      montoInput: monto,
+      descripcionInput: descripcion,
+    });
 
     revalidatePath("/caja");
   }
@@ -254,9 +270,17 @@ export default async function CajaPage() {
           <section className="rounded-2xl border border-green-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
             <h3 className="text-base font-semibold text-gray-900 sm:text-lg">Abrir caja</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Inicia la caja del día con el monto base.
+              Inicia la caja del día con efectivo tomado desde bóveda.
             </p>
-
+            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+              <p>
+                <span className="font-semibold">Saldo actual en bóveda:</span>{" "}
+                {formatCurrency(saldosActuales.saldoBoveda)}
+              </p>
+              <p className="mt-1">
+                El monto de apertura se descontará automáticamente de bóveda y entrará a caja.
+              </p>
+            </div>
             <form action={handleAbrirCaja} className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -327,7 +351,33 @@ export default async function CajaPage() {
                 subtitle="Saldo actual guardado en bóveda."
                 tone="blue"
               />
+              <ResumenCard
+                title="Caja actual"
+                value={formatCurrency(resumenActual?.esperado)}
+                subtitle="Efectivo real de la caja abierta."
+                tone="blue"
+              />
 
+              <ResumenCard
+                title="Saldo banco"
+                value={formatCurrency(saldosActuales.saldoBanco)}
+                subtitle="Disponible actual en banco."
+                tone="blue"
+              />
+
+              <ResumenCard
+                title="Saldo Deuna"
+                value={formatCurrency(saldosActuales.saldoDeuna)}
+                subtitle="Disponible actual en Deuna."
+                tone="blue"
+              />
+
+              <ResumenCard
+                title="Tarjeta por cobrar"
+                value={formatCurrency(saldosActuales.saldoTarjetaPorCobrar)}
+                subtitle="Cobros pendientes por tarjeta."
+                tone="default"
+              />
             </div>
 
             <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
@@ -336,7 +386,7 @@ export default async function CajaPage() {
                   Registrar movimiento
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Agrega ingresos o egresos manuales a la caja actual.
+                  Usa este formulario solo para ingresos o egresos manuales reales. Las transferencias internas entre cuentas se registran aparte.
                 </p>
 
                 <form
@@ -355,7 +405,6 @@ export default async function CajaPage() {
                       className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
                     >
                       <option value="caja">Caja</option>
-                      <option value="boveda">Bóveda</option>
                       <option value="banco">Banco</option>
                       <option value="deuna">Deuna</option>
                       <option value="tarjeta_por_cobrar">Tarjeta por cobrar</option>
@@ -394,7 +443,6 @@ export default async function CajaPage() {
                       <option value="pago_prestamo">Pago préstamo</option>
                       <option value="aporte">Aporte</option>
                       <option value="retiro_dueno">Retiro dueño</option>
-                      <option value="transferencia_interna">Transferencia</option>
                     </select>
                   </div>
 
@@ -457,6 +505,7 @@ export default async function CajaPage() {
                     >
                       <option value="efectivo">Efectivo</option>
                       <option value="transferencia">Transferencia</option>
+                      <option value="deuna">Deuna</option>
                       <option value="tarjeta">Tarjeta</option>
                       <option value="mixto">Mixto</option>
                     </select>
@@ -484,15 +533,144 @@ export default async function CajaPage() {
                   </div>
                 </form>
               </section>
+              <section className="rounded-2xl border border-blue-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
+                <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+                  Transferencia entre cuentas
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Usa esta sección para mover dinero entre caja, bóveda, banco o Deuna. Esto no es ingreso ni gasto real.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Caja
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
+                      {formatCurrency(saldosActuales.saldoCaja)}
+                    </p>
+                  </div>
 
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Bóveda
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
+                      {formatCurrency(saldosActuales.saldoBoveda)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Banco
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
+                      {formatCurrency(saldosActuales.saldoBanco)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Deuna
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
+                      {formatCurrency(saldosActuales.saldoDeuna)}
+                    </p>
+                  </div>
+                </div>
+                <form action={handleTransferirEntreCuentas} className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Cuenta origen
+                    </label>
+                    <select
+                      name="cuenta_origen_transferencia"
+                      defaultValue="caja"
+                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                    >
+                      <option value="caja">Caja</option>
+                      <option value="boveda">Bóveda</option>
+                      <option value="banco">Banco</option>
+                      <option value="deuna">Deuna</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Cuenta destino
+                    </label>
+                    <select
+                      name="cuenta_destino_transferencia"
+                      defaultValue="boveda"
+                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                    >
+                      <option value="caja">Caja</option>
+                      <option value="boveda">Bóveda</option>
+                      <option value="banco">Banco</option>
+                      <option value="deuna">Deuna</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                    <p className="font-medium">Ejemplos útiles:</p>
+                    <ul className="mt-2 space-y-1">
+                      <li>• Caja → Bóveda: guardar efectivo</li>
+                      <li>• Bóveda → Caja: sacar efectivo para pagos</li>
+                      <li>• Bóveda → Banco: depositar dinero</li>
+                    </ul>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Monto a transferir
+                    </label>
+                    <input
+                      name="monto_transferencia"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      placeholder="10"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Descripción
+                    </label>
+                    <input
+                      name="descripcion_transferencia"
+                      type="text"
+                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      placeholder="Ej: envío a bóveda o depósito a banco"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <button
+                      type="submit"
+                      className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-blue-300 bg-blue-600 px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 sm:w-auto"
+                    >
+                      Transferir entre cuentas
+                    </button>
+                  </div>
+                </form>
+              </section>
               <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
                 <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
                   Cerrar caja
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Registra el efectivo real para calcular diferencia.
+                  Registra el efectivo real contado. Ese monto se enviará automáticamente a bóveda y la diferencia quedará registrada.
                 </p>
-
+                <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
+                  <p>
+                    <span className="font-semibold">Importante:</span> al cerrar caja, el monto real contado se moverá a bóveda.
+                  </p>
+                  <p className="mt-1">
+                    Si el monto real no coincide con el esperado, la diferencia quedará registrada en el cierre.
+                  </p>
+                </div>
                 <form action={handleCerrarCaja} className="mt-4 grid gap-4">
                   <div className="grid gap-2">
                     <label className="text-sm font-medium text-gray-700">
@@ -563,6 +741,8 @@ export default async function CajaPage() {
                           <th className="px-4 py-3">Fecha</th>
                           <th className="px-4 py-3">Tipo</th>
                           <th className="px-4 py-3">Categoría</th>
+                          <th className="px-4 py-3">Cuenta</th>
+                          <th className="px-4 py-3">Destino</th>
                           <th className="px-4 py-3">Método</th>
                           <th className="px-4 py-3">Descripción</th>
                           <th className="px-4 py-3">Monto</th>
@@ -572,7 +752,12 @@ export default async function CajaPage() {
                         {movimientos.map((movimiento) => (
                           <tr
                             key={movimiento.id}
-                            className="border-t border-gray-200 text-sm"
+                            className={`border-b ${movimiento.naturaleza === "transferencia_interna"
+                              ? "bg-blue-50"
+                              : movimiento.tipo === "ingreso"
+                                ? "bg-green-50"
+                                : "bg-red-50"
+                              }`}
                           >
                             <td className="px-4 py-3">
                               {formatDateTime(movimiento.created_at)}
@@ -581,12 +766,21 @@ export default async function CajaPage() {
                               <MovimientoTipoBadge tipo={movimiento.tipo} />
                             </td>
                             <td className="px-4 py-3">{movimiento.categoria}</td>
+                            <td className="px-4 py-3">{movimiento.cuenta ?? "-"}</td>
+                            <td className="px-4 py-3">{movimiento.cuenta_destino ?? "-"}</td>
                             <td className="px-4 py-3">{movimiento.metodo_pago}</td>
                             <td className="px-4 py-3">
                               {movimiento.descripcion ?? "-"}
                             </td>
-                            <td className="px-4 py-3 font-medium">
-                              {formatCurrency(movimiento.monto)}
+                            <td
+                              className={`px-4 py-3 font-semibold ${movimiento.naturaleza === "transferencia_interna"
+                                ? "text-blue-600"
+                                : movimiento.tipo === "ingreso"
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                                }`}
+                            >
+                              ${movimiento.monto.toFixed(2)}
                             </td>
                           </tr>
                         ))}
@@ -598,7 +792,12 @@ export default async function CajaPage() {
                     {movimientos.map((movimiento) => (
                       <article
                         key={movimiento.id}
-                        className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4"
+                        className={`rounded-2xl border p-4 ${movimiento.naturaleza === "transferencia_interna"
+                          ? "border-blue-200 bg-blue-50"
+                          : movimiento.tipo === "ingreso"
+                            ? "border-green-200 bg-green-50"
+                            : "border-red-200 bg-red-50"
+                          }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -620,6 +819,20 @@ export default async function CajaPage() {
                           </div>
 
                           <div>
+                            <p className="text-xs font-medium text-gray-500">Cuenta</p>
+                            <p className="mt-1 text-sm text-gray-900">
+                              {movimiento.cuenta ?? "-"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-medium text-gray-500">Destino</p>
+                            <p className="mt-1 text-sm text-gray-900">
+                              {movimiento.cuenta_destino ?? "-"}
+                            </p>
+                          </div>
+
+                          <div>
                             <p className="text-xs font-medium text-gray-500">Método</p>
                             <p className="mt-1 text-sm text-gray-900">
                               {movimiento.metodo_pago}
@@ -636,7 +849,14 @@ export default async function CajaPage() {
 
                         <div className="mt-4 border-t border-gray-200 pt-4">
                           <p className="text-xs font-medium text-gray-500">Monto</p>
-                          <p className="mt-1 text-base font-bold text-gray-900">
+                          <p
+                            className={`mt-1 text-base font-bold ${movimiento.naturaleza === "transferencia_interna"
+                              ? "text-blue-600"
+                              : movimiento.tipo === "ingreso"
+                                ? "text-green-600"
+                                : "text-red-600"
+                              }`}
+                          >
                             {formatCurrency(movimiento.monto)}
                           </p>
                         </div>

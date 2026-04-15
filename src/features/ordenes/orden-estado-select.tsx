@@ -1,11 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { updateOrdenEstado } from "./actions";import {
+import { updateOrdenEstado } from "./actions";
+import {
   getEstadoClasses,
   getEstadoLabel,
-  type OrdenEstado,
 } from "@/utils/orden-status";
+
+import type { OrdenEstado } from "@/lib/core/ordenes/reglas";
+
+import {
+  esOrdenSoloLecturaUI,
+  getEstadosDisponiblesOrdenUI,
+} from "@/lib/core/ui/permisos-ordenes";
 
 type OrdenEstadoSelectProps = {
   ordenId: string;
@@ -13,39 +20,6 @@ type OrdenEstadoSelectProps = {
   rol: "admin" | "recepcion" | "tecnico";
   onUpdated?: (nuevoEstado: OrdenEstado) => void;
 };
-
-function getEstadosDisponibles(
-  estadoActual: OrdenEstado,
-  rol: "admin" | "recepcion" | "tecnico"
-): OrdenEstado[] {
-  if (rol === "tecnico") {
-    const permitidosTecnico: Record<OrdenEstado, OrdenEstado[]> = {
-      pendiente: ["pendiente", "en_proceso"],
-      en_proceso: ["en_proceso", "completada"],
-      completada: ["completada"],
-      entregada: ["entregada"],
-      cancelada: ["cancelada"],
-    };
-
-    return permitidosTecnico[estadoActual] ?? [estadoActual];
-  }
-
-  const permitidosAdminRecepcion: Record<OrdenEstado, OrdenEstado[]> = {
-    pendiente: ["pendiente", "en_proceso", "cancelada"],
-    en_proceso: ["pendiente", "en_proceso", "completada", "cancelada"],
-    completada: [
-      "pendiente",
-      "en_proceso",
-      "completada",
-      "entregada",
-      "cancelada",
-    ],
-    entregada: ["entregada"],
-    cancelada: ["cancelada"],
-  };
-
-  return permitidosAdminRecepcion[estadoActual] ?? [estadoActual];
-}
 
 export function OrdenEstadoSelect({
   ordenId,
@@ -58,7 +32,7 @@ export function OrdenEstadoSelect({
   const [error, setError] = useState("");
 
   const estadosDisponibles = useMemo(() => {
-    return getEstadosDisponibles(estadoActual, rol);
+    return getEstadosDisponiblesOrdenUI(rol, estadoActual);
   }, [estadoActual, rol]);
 
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -83,11 +57,9 @@ export function OrdenEstadoSelect({
           setEstado(estadoAnterior);
           return;
         }
-
-        await updateOrdenEstado(ordenId, nuevoEstado);
-      } else {
-        await updateOrdenEstado(ordenId, nuevoEstado);
       }
+
+      await updateOrdenEstado(ordenId, nuevoEstado);
       onUpdated?.(nuevoEstado);
     } catch (err) {
       setEstado(estadoAnterior);
@@ -101,8 +73,7 @@ export function OrdenEstadoSelect({
     }
   }
 
-  const isSoloLectura =
-    estadoActual === "entregada" || estadoActual === "cancelada";
+  const isSoloLectura = esOrdenSoloLecturaUI(estadoActual);
 
   return (
     <div className="grid gap-1">

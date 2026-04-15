@@ -226,7 +226,7 @@ export function PagoProveedorForm({
             <option value="transferencia">Transferencia</option>
             <option value="deuna">DeUna</option>
             <option value="tarjeta">Tarjeta</option>
-            <option value="otro">Otro</option>
+            <option value="mixto">Mixto</option>
           </select>
         </div>
 

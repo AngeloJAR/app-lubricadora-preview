@@ -1,8 +1,14 @@
+"use client";
+
 import { Card } from "@/components/ui/card";
 import { DashboardFinanzasChart } from "./dashboard-finanzas-chart";
 import { DashboardPeriodoFilter } from "./dashboard-periodo-filter";
 import { DashboardAccesosRapidos } from "./dashboard-accesos-rapidos";
 import { BackupButton } from "./backup-button";
+
+import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 import {
   getDashboardPeriodoLabel,
@@ -175,8 +181,52 @@ export function DashboardView({
   const safeAlertas = alertas ?? [];
   const safeAcciones = accionesSugeridas ?? [];
   const safeSerieFinanciera = serieFinanciera ?? [];
-  const periodoLabel = getDashboardPeriodoLabel(periodo);
+  const periodoLabel = getDashboardPeriodoLabel(periodo); const router = useRouter();
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    const supabase = createClient();
 
+    const refreshDebounced = () => {
+      if (timeoutRef.current) return;
+
+      timeoutRef.current = setTimeout(() => {
+        router.refresh();
+        timeoutRef.current = null;
+      }, 1500); // evita spam de refresh
+    };
+
+    const channel = supabase
+      .channel("dashboard-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ordenes_trabajo" },
+        refreshDebounced
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "caja_movimientos" },
+        refreshDebounced
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "producto_movimientos" },
+        refreshDebounced
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "orden_pagos" },
+        refreshDebounced
+      )
+      .subscribe();
+
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [router]);
   if (rol === "tecnico" && metricasTecnico) {
     return <DashboardTecnicoCards metricas={metricasTecnico} />;
   }
@@ -238,7 +288,7 @@ export function DashboardView({
         />
 
         <MetricCard
-          title={`Ventas · ${periodoLabel}`}
+          title={`Ingresos · ${periodoLabel}`}
           value={formatCurrency(metricas?.ventas_hoy)}
           description="Total vendido en el período seleccionado."
         />
@@ -246,14 +296,14 @@ export function DashboardView({
         <MetricCard
           title={`Utilidad operativa · ${periodoLabel}`}
           value={formatCurrency(metricas?.utilidad_hoy)}
-          description="Ventas - costos - gastos operativos."
+          description="Ingresos - egresos operativos del período."
           valueClassName={
             utilidadPeriodo < 0 ? "text-red-600" : "text-green-700"
           }
         />
 
         <MetricCard
-          title="Ventas del mes"
+          title="Ingresos del mes"
           value={formatCurrency(metricas?.ventas_mes)}
           description="Total vendido este mes."
         />
@@ -358,7 +408,7 @@ export function DashboardView({
         <MetricCard
           title={`Margen · ${periodoLabel}`}
           value={formatPercent(metricas?.margen_hoy)}
-          description="Porcentaje real de ganancia sobre las ventas."
+          description="Porcentaje de ganancia sobre ingresos."
           valueClassName={
             margenPeriodo < 0
               ? "text-red-600"
@@ -380,7 +430,7 @@ export function DashboardView({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard
-          title="Gastos del mes"
+          title="Egresos operativos del mes"
           value={formatCurrency(metricas?.gastos_mes)}
           description="Egresos operativos acumulados del mes."
         />

@@ -115,6 +115,10 @@ export type OrdenTrabajo = {
   tecnico_id: string | null;
   fecha: string;
   estado: "pendiente" | "en_proceso" | "completada" | "entregada" | "cancelada";
+  estado_pago: "pendiente" | "abonada" | "pagada";
+  total_pagado: number;
+  saldo_pendiente: number;
+  fecha_pago: string | null;
   kilometraje: number | null;
   kilometraje_final: number | null;
   subtotal: number;
@@ -195,6 +199,7 @@ export type OrdenConRelaciones = OrdenTrabajo & {
     es_principal: boolean;
   }[];
 };
+
 export type HistorialOrden = OrdenTrabajo & {
   vehiculos: {
     id: string;
@@ -504,7 +509,7 @@ export type Gasto = {
   fecha: string;
   tipo_gasto: "fijo" | "variable";
   ambito: "negocio" | "personal";
-  metodo_pago: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "otro";
+  metodo_pago: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto";
   afecta_caja: boolean;
   created_by: string | null;
   created_at: string;
@@ -521,7 +526,7 @@ export type GastoFormData = {
   fecha: string;
   tipo_gasto: "fijo" | "variable";
   ambito: "negocio" | "personal";
-  metodo_pago: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "otro";
+  metodo_pago: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto";
   afecta_caja: boolean;
   cuenta: CuentaDinero;
   origen_fondo: OrigenFondo;
@@ -885,8 +890,14 @@ export type CajaMovimientoCategoria =
   | "retiro"
   | "ajuste";
 
-export type MetodoPago = "efectivo" | "transferencia" | "tarjeta" | "mixto";
+export type MetodoPago =
+  | "efectivo"
+  | "transferencia"
+  | "deuna"
+  | "tarjeta"
+  | "mixto";
 
+  
 export type CajaMovimiento = {
   id: string;
   caja_id: string;
@@ -954,7 +965,7 @@ export type MetodoPagoProveedor =
   | "transferencia"
   | "deuna"
   | "tarjeta"
-  | "otro";
+  | "mixto";
 
 export type EstadoPagoFacturaCompra =
   | "pendiente"
@@ -1017,10 +1028,10 @@ export type FacturaCompra = {
   estado_pago: EstadoPagoFacturaCompra;
   total_pagado: number;
   saldo_pendiente: number;
-
+  fecha_pago: string | null;
   archivo_url: string | null;
   archivo_nombre: string | null;
-  origen: "manual" | "email";
+  origen: "manual" | "email" | "xml";
   hash_documento: string | null;
   observaciones: string | null;
   created_at: string;

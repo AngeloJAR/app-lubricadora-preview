@@ -132,6 +132,7 @@ export function OrdenForm({
 }: OrdenFormProps) {
   const searchParams = useSearchParams();
 
+  
   const [form, setForm] = useState<OrdenFormData>(initialState);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
@@ -147,7 +148,7 @@ export function OrdenForm({
   const [comboLoading, setComboLoading] = useState(false);
   const [puntosCliente, setPuntosCliente] = useState(0);
   const [serviciosSugeridos, setServiciosSugeridos] = useState<ServicioSugerido[]>([]);
-
+  
   const [productosRecordadosVehiculo, setProductosRecordadosVehiculo] =
     useState<ProductosRecordadosVehiculoState>({
       aceite: null,

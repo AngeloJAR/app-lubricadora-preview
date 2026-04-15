@@ -76,7 +76,7 @@ export const DashboardFinanzasChart = memo(function DashboardFinanzasChart({
             <Line
               type="monotone"
               dataKey="ventas"
-              name="Ventas"
+              name="Ingresos"
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 5 }}
@@ -94,7 +94,7 @@ export const DashboardFinanzasChart = memo(function DashboardFinanzasChart({
             <Line
               type="monotone"
               dataKey="gastos"
-              name="Gastos"
+              name="Egresos"
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 5 }}

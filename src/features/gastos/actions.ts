@@ -14,7 +14,7 @@ type GetGastosFilters = {
   | "transferencia"
   | "deuna"
   | "tarjeta"
-  | "otro"
+  | "mixto"
   | "todos";
   afecta_caja?: "si" | "no" | "todos";
 };
@@ -79,14 +79,14 @@ function normalizarAmbito(
 }
 
 function normalizarMetodoPago(
-  value: GastoFormData["metodo_pago"]
-): "efectivo" | "transferencia" | "deuna" | "tarjeta" | "otro" {
+  value?: string | null
+): "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto" {
   if (
     value === "efectivo" ||
     value === "transferencia" ||
     value === "deuna" ||
     value === "tarjeta" ||
-    value === "otro"
+    value === "mixto"
   ) {
     return value;
   }

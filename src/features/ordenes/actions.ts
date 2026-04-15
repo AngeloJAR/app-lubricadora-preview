@@ -2,11 +2,8 @@
 
 import { validarTransicionEstadoOrden } from "@/features/ordenes/domain/orden.service";
 import { construirTotalesOrdenDesdePayload } from "@/features/ordenes/domain/orden-payload";
-import {
 
-} from "@/features/ordenes/domain/orden-stock.service";
-
-
+import { updateOrden as updateOrdenAction } from "./actions/mutations";
 
 import { createClient } from "@/lib/supabase/server";
 import { getTareasSugeridasPorServicio } from "./constants";
@@ -22,30 +19,6 @@ import {
   createOrden as createOrdenAction,
 } from "./actions/mutations";
 
-export async function updateOrdenEstado(
-  ordenId: string,
-  estado: OrdenTrabajo["estado"]
-) {
-  return updateOrdenEstadoAction(ordenId, estado);
-}
-
-export async function deleteOrdenCancelada(ordenId: string) {
-  return deleteOrdenCanceladaAction(ordenId);
-}
-
-export async function createOrden(payload: OrdenFormData) {
-  return createOrdenAction(payload);
-}
-
-
-import { updateOrden as updateOrdenAction } from "./actions/mutations";
-
-export async function updateOrden(
-  ordenId: string,
-  payload: OrdenFormData
-) {
-  return updateOrdenAction(ordenId, payload);
-}
 import type {
   Cliente,
   HistorialOrden,
@@ -66,6 +39,39 @@ import type {
   OrdenTareaTecnico,
   OrdenTareaTecnicoFormData,
 } from "@/types";
+
+import { registrarPagoOrden as registrarPagoOrdenAction } from "./actions/pagos-actions";
+
+export async function updateOrdenEstado(
+  ordenId: string,
+  estado: OrdenTrabajo["estado"]
+) {
+  return updateOrdenEstadoAction(ordenId, estado);
+}
+
+export async function deleteOrdenCancelada(ordenId: string) {
+  return deleteOrdenCanceladaAction(ordenId);
+}
+
+export async function createOrden(payload: OrdenFormData) {
+  return createOrdenAction(payload);
+}
+
+export async function updateOrden(
+  ordenId: string,
+  payload: OrdenFormData
+) {
+  return updateOrdenAction(ordenId, payload);
+}
+
+export async function registrarPagoOrden(params: {
+  ordenId: string;
+  monto: number;
+  metodo_pago: "efectivo" | "transferencia" | "deuna" | "tarjeta" | "mixto";
+  cuenta?: "caja" | "banco" | "deuna" | "boveda" | "tarjeta_por_cobrar";
+}) {
+  return registrarPagoOrdenAction(params);
+}
 
 type EstadoOrdenTecnico =
   | "pendiente"
@@ -1097,6 +1103,10 @@ export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
     tecnico_id,
     fecha,
     estado,
+    estado_pago,
+    total_pagado,
+    saldo_pendiente,
+    fecha_pago,
     kilometraje,
     kilometraje_final,
     subtotal,
@@ -1149,6 +1159,10 @@ export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
     tecnico_id: string | null;
     fecha: string;
     estado: OrdenConRelaciones["estado"];
+    estado_pago: "pendiente" | "abonada" | "pagada";
+    total_pagado: number;
+    saldo_pendiente: number;
+    fecha_pago: string | null;
     kilometraje: number | null;
     kilometraje_final: number | null;
     subtotal: number;
@@ -1218,6 +1232,10 @@ export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
     tecnico_id: row.tecnico_id,
     fecha: row.fecha,
     estado: row.estado,
+    estado_pago: row.estado_pago,
+    total_pagado: Number(row.total_pagado ?? 0),
+    saldo_pendiente: Number(row.saldo_pendiente ?? row.total ?? 0),
+    fecha_pago: row.fecha_pago,
     kilometraje: row.kilometraje,
     kilometraje_final: row.kilometraje_final,
     subtotal: row.subtotal,
@@ -1429,6 +1447,10 @@ type OrdenDetalleRow = {
   tecnico_id: string | null;
   fecha: string;
   estado: "pendiente" | "en_proceso" | "completada" | "entregada" | "cancelada";
+  estado_pago: "pendiente" | "abonada" | "pagada";
+  total_pagado: number;
+  saldo_pendiente: number;
+  fecha_pago: string | null;
   kilometraje: number | null;
   kilometraje_final: number | null;
   subtotal: number;
@@ -1557,6 +1579,10 @@ export async function getOrdenDetalle(ordenId: string): Promise<OrdenDetalle> {
 
   return {
     ...row,
+    estado_pago: row.estado_pago,
+    total_pagado: Number(row.total_pagado ?? 0),
+    saldo_pendiente: Number(row.saldo_pendiente ?? row.total ?? 0),
+    fecha_pago: row.fecha_pago,
     descuento_puntos: row.descuento_puntos ?? 0,
     puntos_usados: row.puntos_usados ?? 0,
     pdf_url: row.pdf_url ?? null,
@@ -2433,164 +2459,4 @@ export async function cancelarYEliminarOrden(ordenId: string) {
   await deleteOrdenCancelada(ordenId);
 
   return { success: true };
-}
-
-function resolveCuentaPorMetodoPago(
-  metodoPago: "efectivo" | "transferencia" | "tarjeta" | "mixto"
-): "caja" | "banco" | "tarjeta_por_cobrar" {
-  switch (metodoPago) {
-    case "efectivo":
-      return "caja";
-    case "transferencia":
-      return "banco";
-    case "tarjeta":
-      return "tarjeta_por_cobrar";
-    case "mixto":
-      throw new Error(
-        "El pago mixto debe dividirse en pagos separados para registrar bien caja y banco"
-      );
-  }
-}
-
-export async function registrarPagoOrden({
-  ordenId,
-  monto,
-  metodo_pago,
-}: {
-  ordenId: string;
-  monto: number;
-  metodo_pago: "efectivo" | "transferencia" | "tarjeta" | "mixto";
-}) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) throw new Error("Usuario no autenticado");
-
-  const { data: perfil } = await supabase
-    .from("usuarios_app")
-    .select("rol")
-    .eq("id", user.id)
-    .single();
-
-  if (!perfil || (perfil.rol !== "admin" && perfil.rol !== "recepcion")) {
-    throw new Error("No autorizado para cobrar");
-  }
-
-  const cuenta = resolveCuentaPorMetodoPago(metodo_pago);
-
-  const { data: caja, error: cajaError } = await supabase
-    .from("cajas")
-    .select("*")
-    .eq("estado", "abierta")
-    .single();
-
-  if (cajaError || !caja) {
-    throw new Error("No hay caja abierta");
-  }
-
-  const { data: orden, error: ordenError } = await supabase
-    .from("ordenes_trabajo")
-    .select("id, numero, total, estado")
-    .eq("id", ordenId)
-    .single();
-
-  if (ordenError || !orden) {
-    throw new Error("Orden no encontrada");
-  }
-
-  if (orden.estado !== "completada") {
-    throw new Error("Solo se pueden cobrar órdenes completadas");
-  }
-
-  const { data: pagosPrevios, error: pagosPreviosError } = await supabase
-    .from("orden_pagos")
-    .select("monto")
-    .eq("orden_id", ordenId);
-
-  if (pagosPreviosError) {
-    throw new Error("No se pudieron validar los pagos previos");
-  }
-
-  const totalPagado =
-    (pagosPrevios ?? []).reduce((acc, p) => acc + Number(p.monto), 0) || 0;
-
-  const saldoPendiente = Number(orden.total) - totalPagado;
-
-  if (monto <= 0) {
-    throw new Error("El monto debe ser mayor a 0");
-  }
-
-  if (monto > saldoPendiente) {
-    throw new Error("No puedes cobrar más del saldo pendiente");
-  }
-
-  const esAbono = monto < saldoPendiente;
-  const categoriaMovimiento = esAbono ? "abono_orden" : "orden";
-
-  const { data: pagoRegistrado, error: pagoError } = await supabase
-    .from("orden_pagos")
-    .insert({
-      orden_id: ordenId,
-      caja_id: caja.id,
-      monto,
-      metodo_pago,
-      creado_por: user.id,
-      cuenta,
-      origen_fondo: "negocio",
-      naturaleza: "ingreso_operativo",
-      observacion: `Cobro de orden ${orden.numero}`,
-    })
-    .select("id")
-    .single();
-
-  if (pagoError || !pagoRegistrado) {
-    console.error("ERROR PAGO:", pagoError);
-    throw new Error(pagoError?.message || "No se pudo registrar el pago");
-  }
-
-  const { error: movError } = await supabase
-    .from("caja_movimientos")
-    .insert({
-      caja_id: caja.id,
-      tipo: "ingreso",
-      categoria: categoriaMovimiento,
-      monto,
-      descripcion: `Pago orden ${orden.numero}`,
-      referencia_tipo: "orden_pago",
-      referencia_id: pagoRegistrado.id,
-      metodo_pago,
-      cuenta,
-      origen_fondo: "negocio",
-      naturaleza: "ingreso_operativo",
-      creado_por: user.id,
-    });
-
-  if (movError) {
-    console.error("ERROR MOVIMIENTO CAJA:", movError);
-
-    await supabase.from("orden_pagos").delete().eq("id", pagoRegistrado.id);
-
-    throw new Error("Error registrando en caja");
-  }
-
-  const nuevoTotalPagado = totalPagado + monto;
-
-  if (nuevoTotalPagado >= Number(orden.total)) {
-    const { error: updateOrdenError } = await supabase
-      .from("ordenes_trabajo")
-      .update({ estado: "entregada" })
-      .eq("id", ordenId);
-
-    if (updateOrdenError) {
-      throw new Error("Se registró el pago, pero no se pudo actualizar la orden");
-    }
-  }
-
-  return {
-    ok: true,
-    saldo_restante: Number(orden.total) - nuevoTotalPagado,
-  };
 }

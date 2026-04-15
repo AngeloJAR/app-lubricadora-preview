@@ -19,6 +19,9 @@ const initialState: GastoFormData = {
   ambito: "negocio",
   metodo_pago: "efectivo",
   afecta_caja: true,
+  cuenta: "caja",
+  origen_fondo: "negocio",
+  naturaleza: "gasto_operativo",
 };
 
 export function GastoForm({ onCreated }: GastoFormProps) {
@@ -172,7 +175,7 @@ export function GastoForm({ onCreated }: GastoFormProps) {
             <option value="transferencia">Transferencia</option>
             <option value="deuna">DeUna</option>
             <option value="tarjeta">Tarjeta</option>
-            <option value="otro">Otro</option>
+            <option value="mixto">Otro</option>
           </select>
         </div>
 
