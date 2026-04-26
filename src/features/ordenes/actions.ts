@@ -174,6 +174,15 @@ type ProductoUltimaOrdenVehiculo = {
   fecha: string;
 };
 
+type OrdenRepetirItemRow = {
+  servicio_id: string | null;
+  producto_id: string | null;
+  tipo_item: "servicio" | "producto";
+  nombre_item: string;
+  cantidad: number;
+  precio_unitario: number;
+};
+
 export async function getDashboardTecnicoMetricas(
   tecnicoId: string
 ): Promise<DashboardTecnicoMetricas> {
@@ -1604,6 +1613,7 @@ export async function getOrdenEditable(ordenId: string): Promise<OrdenEditable> 
     .select(
       `
       id,
+      numero,
       cliente_id,
       vehiculo_id,
       tecnico_id,
@@ -1640,6 +1650,7 @@ export async function getOrdenEditable(ordenId: string): Promise<OrdenEditable> 
 
   return {
     id: row.id,
+    numero: row.numero,
     cliente_id: row.cliente_id,
     vehiculo_id: row.vehiculo_id,
     tecnico_id: row.tecnico_id,
@@ -1665,14 +1676,7 @@ export async function getOrdenEditable(ordenId: string): Promise<OrdenEditable> 
   };
 }
 
-type OrdenRepetirItemRow = {
-  servicio_id: string | null;
-  producto_id: string | null;
-  tipo_item: "servicio" | "producto";
-  nombre_item: string;
-  cantidad: number;
-  precio_unitario: number;
-};
+
 
 export async function repetirOrden(ordenId: string): Promise<OrdenTrabajo> {
   const supabase = await requireAdminOrRecepcion();
@@ -1930,6 +1934,7 @@ export async function finalizarTrabajoOrden(
 
 type OrdenEditableRow = {
   id: string;
+  numero: string;
   cliente_id: string;
   vehiculo_id: string;
   tecnico_id: string | null;

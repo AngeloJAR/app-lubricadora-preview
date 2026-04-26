@@ -109,8 +109,9 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
         const vehiculosData = await getVehiculosByCliente(ordenData.cliente_id);
         setVehiculos(vehiculosData);
 
-        const preOrdenDetectada =
-          String(ordenData.tecnico_id ?? "").trim() === "";
+        const preOrdenDetectada = String(ordenData.numero ?? "")
+          .toUpperCase()
+          .startsWith("PRE-");
 
         setEsPreOrdenOriginal(preOrdenDetectada);
       } catch (err) {

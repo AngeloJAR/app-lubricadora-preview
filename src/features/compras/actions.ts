@@ -492,7 +492,6 @@ export async function createFacturaCompra(input: CrearFacturaCompraInput) {
       estado_pago: "pendiente",
       total_pagado: 0,
       saldo_pendiente: total,
-      fecha_pago: null,
       archivo_url: normalizeText(input.archivo_url),
       archivo_nombre: normalizeText(input.archivo_nombre),
       origen: input.origen ?? "manual",
@@ -795,8 +794,7 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
   const origen_fondo = normalizeOrigenFondo(input.origen_fondo);
   const naturaleza = normalizeNaturalezaMovimiento(input.naturaleza);
 
-  const afecta_caja =
-    cuenta === "caja" ? Boolean(input.afecta_caja ?? true) : false;
+  const afecta_caja = Boolean(input.afecta_caja ?? true);
 
   const observaciones = normalizeText(input.observaciones);
 
@@ -838,12 +836,12 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
 
   let cajaAbierta: Awaited<ReturnType<typeof getCajaAbiertaInterna>> = null;
 
-  if (cuenta === "caja" && afecta_caja) {
+  if (afecta_caja) {
     cajaAbierta = await getCajaAbiertaInterna();
 
     if (!cajaAbierta) {
       throw new Error(
-        "No hay una caja abierta. Abre caja antes de registrar un pago desde caja."
+        "No hay una caja abierta. Abre caja antes de registrar el movimiento financiero."
       );
     }
   }
@@ -871,7 +869,7 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
       origen_fondo,
       naturaleza,
       afecta_caja,
-      caja_id: cuenta === "caja" && afecta_caja ? cajaAbierta?.id ?? null : null,
+      caja_id: afecta_caja ? cajaAbierta?.id ?? null : null,
       observaciones,
       created_by: user.id,
     })
@@ -886,37 +884,74 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
   let cajaMovimientoId: string | null = null;
 
   try {
-    const movimiento = await registrarCajaMovimiento({
-      supabase,
-      caja_id: cuenta === "caja" && afecta_caja ? cajaAbierta?.id ?? null : null,
-      tipo: "egreso",
-      categoria: "pago_proveedor",
-      monto,
-      descripcion: `Pago proveedor · Factura ${factura.numero_factura}`,
-      referencia_tipo: "pago_proveedor",
-      referencia_id: pago.id,
-      metodo_pago: metodoPagoProveedorToCaja(metodo_pago),
-      cuenta,
-      origen_fondo,
-      naturaleza,
-      cuenta_destino: null,
-      creado_por: user.id,
-    });
+    if (afecta_caja) {
+      const movimiento = await registrarCajaMovimiento({
+        supabase,
+        caja_id: cajaAbierta?.id ?? null,
+        tipo: "egreso",
+        categoria: "pago_proveedor",
+        monto,
+        descripcion: `Pago proveedor · Factura ${factura.numero_factura}`,
+        referencia_tipo: "pago_proveedor",
+        referencia_id: pago.id,
+        metodo_pago: metodoPagoProveedorToCaja(metodo_pago),
+        cuenta,
+        origen_fondo,
+        naturaleza,
+        cuenta_destino: null,
+        creado_por: user.id,
+      });
 
-    cajaMovimientoId = movimiento.id;
+      cajaMovimientoId = movimiento.id;
+    }
   } catch (error) {
     await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
     throw error;
   }
 
-  const nuevoTotalPagado = toNumber(totalPagadoActual + monto, 0);
+  const { data: facturaRefrescada, error: facturaRefrescadaError } = await supabase
+    .from("facturas_compra")
+    .select("id, total, total_pagado, saldo_pendiente")
+    .eq("id", input.factura_compra_id)
+    .single();
+
+  if (facturaRefrescadaError || !facturaRefrescada) {
+    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
+
+    if (cajaMovimientoId) {
+      await supabase.from("caja_movimientos").delete().eq("id", cajaMovimientoId);
+    }
+
+    throw new Error("No se pudo refrescar la factura antes de actualizar el pago.");
+  }
+
+  const totalFacturaRefrescado = toNumber(facturaRefrescada.total, 0);
+  const totalPagadoRefrescado = toNumber(facturaRefrescada.total_pagado, 0);
+  const saldoPendienteRefrescado = toNumber(
+    facturaRefrescada.saldo_pendiente,
+    Math.max(0, totalFacturaRefrescado - totalPagadoRefrescado)
+  );
+
+  if (monto > saldoPendienteRefrescado) {
+    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
+
+    if (cajaMovimientoId) {
+      await supabase.from("caja_movimientos").delete().eq("id", cajaMovimientoId);
+    }
+
+    throw new Error(
+      `El pago ya no se puede aplicar porque el saldo pendiente actual es $${saldoPendienteRefrescado.toFixed(2)}.`
+    );
+  }
+
+  const nuevoTotalPagado = toNumber(totalPagadoRefrescado + monto, 0);
   const nuevoSaldoPendiente = calcularSaldoPendienteFacturaCompra(
-    totalFactura,
+    totalFacturaRefrescado,
     nuevoTotalPagado
   );
 
   const nuevoEstadoPago = calcularEstadoPagoFacturaCompra(
-    totalFactura,
+    totalFacturaRefrescado,
     nuevoTotalPagado
   );
 
@@ -924,21 +959,24 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
     estadoPago: nuevoEstadoPago,
     fecha: input.fecha.trim(),
   });
+  console.error("DEBUG_PAGO_PROVEEDOR_FACTURA", {
+    facturaId: input.factura_compra_id,
+    monto,
+    totalFacturaRefrescado,
+    totalPagadoRefrescado,
+    saldoPendienteRefrescado,
+  });
 
-  const { data: facturaActualizada, error: updateFacturaError } = await supabase
+  const { error: updateFacturaError } = await supabase
     .from("facturas_compra")
     .update({
       total_pagado: nuevoTotalPagado,
       saldo_pendiente: nuevoSaldoPendiente,
       estado_pago: nuevoEstadoPago,
-      fecha_pago: nuevaFechaPago,
     })
-    .eq("id", input.factura_compra_id)
-    .gte("saldo_pendiente", monto)
-    .select("id")
-    .single();
+    .eq("id", input.factura_compra_id);
 
-  if (updateFacturaError || !facturaActualizada) {
+  if (updateFacturaError) {
     await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
 
     if (cajaMovimientoId) {
@@ -946,10 +984,6 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
         .from("caja_movimientos")
         .delete()
         .eq("id", cajaMovimientoId);
-    }
-
-    if (!facturaActualizada) {
-      throw new Error("Otro pago fue registrado antes. Intenta nuevamente.");
     }
 
     console.error(
@@ -962,6 +996,29 @@ export async function createPagoProveedor(input: CrearPagoProveedorInput) {
     );
   }
 
+  const { data: facturaVerificada, error: facturaVerificadaError } = await supabase
+    .from("facturas_compra")
+    .select("id, total_pagado, saldo_pendiente, estado_pago")
+    .eq("id", input.factura_compra_id)
+    .single();
+
+  if (facturaVerificadaError || !facturaVerificada) {
+    await supabase.from("pagos_proveedor").delete().eq("id", pago.id);
+
+    if (cajaMovimientoId) {
+      await supabase
+        .from("caja_movimientos")
+        .delete()
+        .eq("id", cajaMovimientoId);
+    }
+
+    console.error(
+      "Error createPagoProveedor verificando factura actualizada:",
+      facturaVerificadaError
+    );
+
+    throw new Error("El pago se registró, pero no se pudo verificar la factura actualizada.");
+  }
 
   revalidatePath("/compras");
   revalidatePath("/caja");

@@ -29,6 +29,10 @@ export async function registrarCajaMovimiento(params: {
     throw new Error("El monto del movimiento no es válido.");
   }
 
+  if (!params.caja_id) {
+    throw new Error("No se puede registrar el movimiento porque no hay una caja válida.");
+  }
+
   const cuenta = normalizeCuentaDinero(params.cuenta);
   const metodo_pago = normalizeMetodoPago(params.metodo_pago);
   const naturaleza = normalizeNaturalezaMovimiento(params.naturaleza);

@@ -438,10 +438,11 @@ export async function getCajaResumenById(
     .filter((item) => item.tipo === "egreso" && item.cuenta === "caja")
     .reduce((acc, item) => acc + toNumber(item.monto), 0);
 
+
   const esperado =
     caja.estado === "cerrada" && caja.monto_esperado !== null
       ? toNumber(caja.monto_esperado)
-      : toNumber(caja.monto_apertura) + ingresos - egresos;
+      : ingresos - egresos;
 
   return {
     caja,
@@ -467,8 +468,7 @@ export async function getCajaResumenActual(): Promise<CajaResumen | null> {
     .filter((m) => m.tipo === "egreso" && m.cuenta === "caja")
     .reduce((acc, m) => acc + toNumber(m.monto), 0);
 
-  const esperado = toNumber(caja.monto_apertura) + ingresos - egresos;
-
+  const esperado = ingresos - egresos;
   return {
     caja,
     ingresos,

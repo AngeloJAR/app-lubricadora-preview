@@ -263,6 +263,7 @@ export type OrdenDetalle = OrdenTrabajo & {
 
 export type OrdenEditable = {
   id: string;
+  numero: string;
   cliente_id: string;
   vehiculo_id: string;
   tecnico_id: string | null;

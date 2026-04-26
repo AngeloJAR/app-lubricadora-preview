@@ -348,6 +348,39 @@ export async function updateOrden(
     if (updateError) {
         throw new Error("No se pudo actualizar la orden");
     }
+    const tecnicosIdsFinal = Array.from(
+        new Set(
+            [payload.tecnico_id, ...(payload.tecnicos_ids ?? [])].filter(
+                (id): id is string => Boolean(id && id.trim())
+            )
+        )
+    );
+
+    const { error: deleteTecnicosError } = await supabase
+        .from("ordenes_tecnicos")
+        .delete()
+        .eq("orden_id", ordenId);
+
+    if (deleteTecnicosError) {
+        throw new Error("No se pudieron limpiar los técnicos asignados");
+    }
+
+    if (tecnicosIdsFinal.length > 0) {
+        const tecnicosInsert = tecnicosIdsFinal.map((tecnicoId) => ({
+            orden_id: ordenId,
+            tecnico_id: tecnicoId,
+            es_principal: tecnicoId === payload.tecnico_id,
+        }));
+
+        const { error: insertTecnicosError } = await supabase
+            .from("ordenes_tecnicos")
+            .insert(tecnicosInsert);
+
+        if (insertTecnicosError) {
+            throw new Error("No se pudieron guardar los técnicos asignados");
+        }
+    }
+
     const { data: itemsActuales } = await supabase
         .from("orden_items")
         .select("producto_id, cantidad, tipo_item")

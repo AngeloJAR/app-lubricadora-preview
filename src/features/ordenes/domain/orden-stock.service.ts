@@ -32,38 +32,18 @@ type ProductoMovimientoInsert = {
   referencia_id: string;
 };
 
-export async function procesarSalidaStockPorOrden(params: {
-  supabase: SupabaseClient;
-  ordenId: string;
-  items: OrdenItemStock[];
-}) {
-  const { supabase, ordenId, items } = params;
+type MovimientoExistenteRow = {
+  id?: string;
+  producto_id: string;
+  tipo: "entrada" | "salida";
+  referencia_id: string;
+  referencia_tipo: string;
+};
 
+function agruparProductosItems(items: OrdenItemStock[]) {
   const productosItems = items.filter(
     (item) => item.tipo_item === "producto" && Boolean(item.producto_id)
   );
-
-  if (productosItems.length === 0) return;
-
-  const productoIds = productosItems
-    .map((item) => item.producto_id)
-    .filter((id): id is string => Boolean(id));
-
-  const { data, error: productosError } = await supabase
-    .from("productos")
-    .select("id, stock, precio_compra, costo_real, nombre")
-    .in("id", productoIds);
-
-  if (productosError || !data) {
-    throw new Error("No se pudieron obtener los productos");
-  }
-
-  const productosDB = data as ProductoStockRow[];
-  const productosMap = new Map<string, ProductoStockRow>(
-    productosDB.map((producto) => [producto.id, producto])
-  );
-
-  const movimientos: ProductoMovimientoInsert[] = [];
 
   const productosAgrupados = new Map<
     string,
@@ -75,6 +55,8 @@ export async function procesarSalidaStockPorOrden(params: {
 
     const cantidad = Number(item.cantidad ?? 0);
     const precio = Number(item.precio_unitario ?? 0);
+
+    if (cantidad <= 0) continue;
 
     const existente = productosAgrupados.get(item.producto_id);
 
@@ -89,16 +71,81 @@ export async function procesarSalidaStockPorOrden(params: {
     }
   }
 
-  for (const [productoId, dataAgrupada] of productosAgrupados) {
-    const cantidadTotal = dataAgrupada.cantidad;
-    const totalVenta = dataAgrupada.totalVenta;
+  return { productosItems, productosAgrupados };
+}
+
+export async function procesarSalidaStockPorOrden(params: {
+  supabase: SupabaseClient;
+  ordenId: string;
+  items: OrdenItemStock[];
+}) {
+  const { supabase, ordenId, items } = params;
+
+  const { productosItems, productosAgrupados } = agruparProductosItems(items);
+
+  if (productosItems.length === 0 || productosAgrupados.size === 0) return;
+
+  const productoIds = Array.from(productosAgrupados.keys());
+
+  const { data: movimientosExistentes, error: movimientosExistentesError } =
+    await supabase
+      .from("producto_movimientos")
+      .select("producto_id, tipo, referencia_id, referencia_tipo")
+      .eq("referencia_tipo", "orden")
+      .eq("referencia_id", ordenId)
+      .eq("tipo", "salida")
+      .in("producto_id", productoIds);
+
+  if (movimientosExistentesError) {
+    throw new Error("No se pudo validar si la orden ya descontó stock");
+  }
+
+  const movimientosSalidaPrevios = new Set(
+    ((movimientosExistentes ?? []) as MovimientoExistenteRow[]).map(
+      (movimiento) => movimiento.producto_id
+    )
+  );
+
+  const productoIdsPendientes = productoIds.filter(
+    (productoId) => !movimientosSalidaPrevios.has(productoId)
+  );
+
+  if (productoIdsPendientes.length === 0) {
+    return;
+  }
+
+  const { data, error: productosError } = await supabase
+    .from("productos")
+    .select("id, stock, precio_compra, costo_real, nombre")
+    .in("id", productoIdsPendientes);
+
+  if (productosError || !data) {
+    throw new Error("No se pudieron obtener los productos");
+  }
+
+  const productosDB = data as ProductoStockRow[];
+  const productosMap = new Map<string, ProductoStockRow>(
+    productosDB.map((producto) => [producto.id, producto])
+  );
+
+  const movimientos: ProductoMovimientoInsert[] = [];
+
+  for (const productoId of productoIdsPendientes) {
+    const dataAgrupada = productosAgrupados.get(productoId);
+
+    if (!dataAgrupada) continue;
+
+    const cantidadTotal = Number(dataAgrupada.cantidad ?? 0);
+    const totalVenta = Number(dataAgrupada.totalVenta ?? 0);
     const producto = productosMap.get(productoId);
 
     if (!producto) {
-      throw new Error(`Producto no encontrado`);
+      throw new Error("Producto no encontrado");
     }
 
-    const costoUnitarioReal = Number(producto.costo_real ?? producto.precio_compra ?? 0);
+    const costoUnitarioReal = Number(
+      producto.costo_real ?? producto.precio_compra ?? 0
+    );
 
     const stockActual = Number(producto.stock ?? 0);
     const cantidadSalida = Number(cantidadTotal);
@@ -117,13 +164,10 @@ export async function procesarSalidaStockPorOrden(params: {
           cantidad: item.cantidad,
           tipo_item: item.tipo_item,
         })),
+      yaTeniaSalidaRegistrada: false,
     });
 
-    const movimientoStock = aplicarSalidaStock(
-      stockActual,
-      cantidadSalida
-    );
-
+    const movimientoStock = aplicarSalidaStock(stockActual, cantidadSalida);
     const nuevoStock = movimientoStock.stock_nuevo;
 
     const { error: updateError } = await supabase
@@ -151,6 +195,8 @@ export async function procesarSalidaStockPorOrden(params: {
     });
   }
 
+  if (movimientos.length === 0) return;
+
   const { error: movimientosError } = await supabase
     .from("producto_movimientos")
     .insert(movimientos);
@@ -167,31 +213,59 @@ export async function procesarEntradaStockPorCancelacion(params: {
 }) {
   const { supabase, ordenId, items } = params;
 
-  const productosItems = items.filter(
-    (item) => item.tipo_item === "producto" && Boolean(item.producto_id)
-  );
+  const { productosItems, productosAgrupados } = agruparProductosItems(items);
 
-  if (productosItems.length === 0) return;
-
-  const productosAgrupados = new Map<string, number>();
-
-  for (const item of productosItems) {
-    if (!item.producto_id) continue;
-
-    const cantidad = Number(item.cantidad ?? 0);
-
-    productosAgrupados.set(
-      item.producto_id,
-      (productosAgrupados.get(item.producto_id) ?? 0) + cantidad
-    );
-  }
+  if (productosItems.length === 0 || productosAgrupados.size === 0) return;
 
   const productoIds = Array.from(productosAgrupados.keys());
+
+  const { data: salidasPrevias, error: salidasPreviasError } = await supabase
+    .from("producto_movimientos")
+    .select("producto_id, tipo, referencia_id, referencia_tipo")
+    .eq("referencia_tipo", "orden")
+    .eq("referencia_id", ordenId)
+    .eq("tipo", "salida")
+    .in("producto_id", productoIds);
+
+  if (salidasPreviasError) {
+    throw new Error("No se pudo validar la salida previa de stock");
+  }
+
+  const { data: entradasPrevias, error: entradasPreviasError } = await supabase
+    .from("producto_movimientos")
+    .select("producto_id, tipo, referencia_id, referencia_tipo")
+    .eq("referencia_tipo", "orden")
+    .eq("referencia_id", ordenId)
+    .eq("tipo", "entrada")
+    .in("producto_id", productoIds);
+
+  if (entradasPreviasError) {
+    throw new Error("No se pudo validar devoluciones previas de stock");
+  }
+
+  const setSalidasPrevias = new Set(
+    ((salidasPrevias ?? []) as MovimientoExistenteRow[]).map(
+      (movimiento) => movimiento.producto_id
+    )
+  );
+
+  const setEntradasPrevias = new Set(
+    ((entradasPrevias ?? []) as MovimientoExistenteRow[]).map(
+      (movimiento) => movimiento.producto_id
+    )
+  );
+
+  const productoIdsPendientes = productoIds.filter(
+    (productoId) =>
+      setSalidasPrevias.has(productoId) && !setEntradasPrevias.has(productoId)
+  );
+
+  if (productoIdsPendientes.length === 0) return;
 
   const { data, error: productosError } = await supabase
     .from("productos")
     .select("id, stock, precio_compra, costo_real, nombre")
-    .in("id", productoIds);
+    .in("id", productoIdsPendientes);
 
   if (productosError || !data) {
     throw new Error("No se pudieron obtener los productos");
@@ -204,14 +278,21 @@ export async function procesarEntradaStockPorCancelacion(params: {
 
   const movimientos: ProductoMovimientoInsert[] = [];
 
-  for (const [productoId, cantidadTotal] of productosAgrupados) {
+  for (const productoId of productoIdsPendientes) {
+    const dataAgrupada = productosAgrupados.get(productoId);
+
+    if (!dataAgrupada) continue;
+
+    const cantidadTotal = Number(dataAgrupada.cantidad ?? 0);
     const producto = productosMap.get(productoId);
 
     if (!producto) {
       throw new Error("Producto no encontrado");
     }
 
-    const costoUnitarioReal = Number(producto.costo_real ?? producto.precio_compra ?? 0);
+    const costoUnitarioReal = Number(
+      producto.costo_real ?? producto.precio_compra ?? 0
+    );
 
     const movimientoStock = aplicarEntradaStock(
       Number(producto.stock ?? 0),
@@ -228,6 +309,7 @@ export async function procesarEntradaStockPorCancelacion(params: {
     if (updateError) {
       throw new Error(`No se pudo devolver stock de ${producto.nombre}`);
     }
+
     movimientos.push({
       producto_id: producto.id,
       tipo: "entrada",
@@ -240,6 +322,8 @@ export async function procesarEntradaStockPorCancelacion(params: {
       referencia_id: ordenId,
     });
   }
+
+  if (movimientos.length === 0) return;
 
   const { error: movimientosError } = await supabase
     .from("producto_movimientos")
