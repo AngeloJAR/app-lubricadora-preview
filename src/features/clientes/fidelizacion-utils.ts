@@ -4,16 +4,18 @@ export function calcularPuntosOrden(items: OrdenItem[]) {
   let puntos = 0;
 
   for (const item of items) {
+    const total = Number(item.total ?? 0);
+
+    if (total <= 0) continue;
+
     if (item.tipo_item === "servicio") {
-        
-      puntos += Math.floor(item.total / 5); // 1 punto cada $5
-    }
 
-    if (item.tipo_item === "producto") {
+      puntos += Math.floor(total / 5);
+    } else if (item.tipo_item === "producto") {
 
-      puntos += Math.floor(item.total / 10); // 1 punto cada $10
+      puntos += Math.floor(total / 10);
     }
   }
 
-  return puntos;
+  return Math.floor(puntos);
 }

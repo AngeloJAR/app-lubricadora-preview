@@ -1,6 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  AlertCircle,
+  CalendarDays,
+  CheckCircle2,
+  Clock,
+  Gauge,
+  Play,
+  Save,
+  Wrench,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 import type { OrdenDetalle, OrdenTareaTecnico } from "@/types";
@@ -38,13 +48,38 @@ type OrdenDetalleTecnicoViewProps = {
   orden: OrdenDetalle;
 };
 
+function StatBox({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "yellow" | "blue" | "green";
+}) {
+  const classes = {
+    default: "border-gray-200 bg-gray-50 text-gray-900",
+    yellow: "border-yellow-200 bg-yellow-50 text-yellow-700",
+    blue: "border-blue-200 bg-blue-50 text-blue-700",
+    green: "border-green-200 bg-green-50 text-green-700",
+  };
+
+  return (
+    <div className={`rounded-2xl border p-3 ${classes[tone]}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-extrabold">{value}</p>
+    </div>
+  );
+}
+
 export function OrdenDetalleTecnicoView({
   orden,
 }: OrdenDetalleTecnicoViewProps) {
   const [loadingAction, setLoadingAction] = useState(false);
   const [errorAction, setErrorAction] = useState("");
   const [successAction, setSuccessAction] = useState("");
-
 
   const [tareas, setTareas] = useState<OrdenTareaDetalle[]>([]);
   const [loadingTareas, setLoadingTareas] = useState(true);
@@ -77,14 +112,21 @@ export function OrdenDetalleTecnicoView({
   const tareasEnProceso = tareas.filter(
     (tarea) => tarea.estado === "en_proceso"
   ).length;
+
+  const progresoTareas =
+    tareasTotales > 0 ? (tareasCompletadas / tareasTotales) * 100 : 0;
+
   const rol = "tecnico" as const;
+
   const todasLasTareasCompletadas =
     tareasTotales > 0 && tareasCompletadas === tareasTotales;
+
   const puedeIniciarTrabajo = puedeIniciarTrabajoOrdenUI(rol, orden.estado);
 
   const puedeFinalizarTrabajo =
     puedeFinalizarTrabajoOrdenUI(rol, orden.estado) &&
     todasLasTareasCompletadas;
+
   const reloadTareas = useCallback(async () => {
     try {
       setLoadingTareas(true);
@@ -93,11 +135,11 @@ export function OrdenDetalleTecnicoView({
       const data = await getTareasByOrden(orden.id);
       setTareas(data as OrdenTareaDetalle[]);
     } catch (err) {
-      const message =
+      setErrorTareas(
         err instanceof Error
           ? err.message
-          : "No se pudieron cargar las tareas de la orden.";
-      setErrorTareas(message);
+          : "No se pudieron cargar las tareas de la orden."
+      );
     } finally {
       setLoadingTareas(false);
     }
@@ -108,18 +150,20 @@ export function OrdenDetalleTecnicoView({
       setLoadingAction(true);
       setErrorAction("");
       setSuccessAction("");
+
       if (!puedeIniciarTrabajoOrdenUI(rol, orden.estado)) {
         setErrorAction("La orden no está lista para iniciar.");
         return;
       }
+
       await iniciarTrabajoOrden(orden.id);
       await reloadTareas();
 
       setSuccessAction("Trabajo iniciado correctamente.");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No se pudo iniciar el trabajo.";
-      setErrorAction(message);
+      setErrorAction(
+        err instanceof Error ? err.message : "No se pudo iniciar el trabajo."
+      );
     } finally {
       setLoadingAction(false);
     }
@@ -127,17 +171,20 @@ export function OrdenDetalleTecnicoView({
 
   async function handleFinalizarTrabajo() {
     try {
+      setErrorAction("");
+      setSuccessAction("");
+
       if (!puedeFinalizarTrabajoOrdenUI(rol, orden.estado)) {
         setErrorAction("La orden no está lista para finalizar.");
         return;
       }
+
       if (!todasLasTareasCompletadas) {
         setErrorAction("Debes completar todas las tareas antes de finalizar.");
         return;
       }
+
       setLoadingAction(true);
-      setErrorAction("");
-      setSuccessAction("");
 
       await finalizarTrabajoOrden(orden.id, {
         observaciones_tecnicas: observacionesTecnicas,
@@ -148,9 +195,9 @@ export function OrdenDetalleTecnicoView({
 
       setSuccessAction("Trabajo finalizado correctamente.");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No se pudo finalizar el trabajo.";
-      setErrorAction(message);
+      setErrorAction(
+        err instanceof Error ? err.message : "No se pudo finalizar el trabajo."
+      );
     } finally {
       setLoadingAction(false);
     }
@@ -175,11 +222,10 @@ export function OrdenDetalleTecnicoView({
       } else {
         setSuccessAction("Tarea actualizada correctamente.");
       }
-
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No se pudo actualizar la tarea.";
-      setErrorAction(message);
+      setErrorAction(
+        err instanceof Error ? err.message : "No se pudo actualizar la tarea."
+      );
     } finally {
       setLoadingQuickTaskId(null);
     }
@@ -190,130 +236,182 @@ export function OrdenDetalleTecnicoView({
   }, [reloadTareas]);
 
   return (
-    <div className="grid gap-4">
-      <OrdenResumenCard
-        orden={orden}
-        showKilometrajeFinal={false}
-        showTotal={false}
-        rightContent={
-          <>
-            <div className="flex flex-wrap justify-end gap-2">
-              {puedeIniciarTrabajo ?
-                (<button
-                  type="button"
-                  onClick={handleIniciarTrabajo}
-                  disabled={
-                    loadingAction ||
-                    tareasTotales === 0 ||
-                    tareasEnProceso > 0 ||
-                    orden.estado !== "pendiente"
-                  } className="inline-flex rounded-xl bg-yellow-500 border border-yellow-300 px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
-                >
-                  {loadingAction ? "Procesando..." : "Iniciar trabajo"}
-                </button>
-                ) : null}
+    <div className="grid gap-5">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <OrdenResumenCard
+          orden={orden}
+          showKilometrajeFinal={false}
+          showTotal={false}
+        />
 
-              {puedeFinalizarTrabajo ? (
-                <button
-                  type="button"
-                  onClick={handleFinalizarTrabajo}
-                  disabled={loadingAction}
-                  className="inline-flex rounded-xl bg-green-600 px-4 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
-                >
-                  {loadingAction ? "Procesando..." : "Finalizar trabajo"}
-                </button>
-              ) : null}
+        <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-gray-500" />
+            <h3 className="text-sm font-bold text-gray-800">
+              Trabajo técnico
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <StatBox label="Total" value={tareasTotales} />
+            <StatBox label="Pendientes" value={tareasPendientes} tone="yellow" />
+            <StatBox label="En proceso" value={tareasEnProceso} tone="blue" />
+            <StatBox label="Completadas" value={tareasCompletadas} tone="green" />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Progreso
+              </span>
+              <span className="text-xs font-bold text-gray-700">
+                {Math.round(progresoTareas)}%
+              </span>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 p-4">
-              <p className="mb-2 text-sm text-gray-500">Resumen de tareas</p>
-              <div className="grid gap-2 text-sm">
-                <p>Total: {tareasTotales}</p>
-                <p>Pendientes: {tareasPendientes}</p>
-                <p>En proceso: {tareasEnProceso}</p>
-                <p>Completadas: {tareasCompletadas}</p>
-              </div>
+            <div className="h-3 overflow-hidden rounded-full bg-gray-200">
+              <div
+                className="h-full rounded-full bg-green-500 transition-all"
+                style={{ width: `${progresoTareas}%` }}
+              />
             </div>
-          </>
-        }
-      />
+          </div>
+
+          <div className="mt-4 grid gap-2">
+            {puedeIniciarTrabajo ? (
+              <button
+                type="button"
+                onClick={handleIniciarTrabajo}
+                disabled={
+                  loadingAction ||
+                  tareasTotales === 0 ||
+                  tareasEnProceso > 0 ||
+                  orden.estado !== "pendiente"
+                }
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-yellow-300 bg-yellow-500 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Play className="h-4 w-4" />
+                {loadingAction ? "Procesando..." : "Iniciar trabajo"}
+              </button>
+            ) : null}
+
+            {puedeFinalizarTrabajo ? (
+              <button
+                type="button"
+                onClick={handleFinalizarTrabajo}
+                disabled={loadingAction}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-green-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-green-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {loadingAction ? "Procesando..." : "Finalizar trabajo"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       {errorAction ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+          <AlertCircle className="mt-0.5 h-5 w-5" />
           {errorAction}
         </div>
       ) : null}
 
       {successAction ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-3 text-sm font-medium text-green-700">
+          <CheckCircle2 className="mt-0.5 h-5 w-5" />
           {successAction}
         </div>
       ) : null}
 
-      <OrdenItemsCard
-        orden={orden}
-        showTotals={false}
-        hidePrices
-      />
+      <OrdenItemsCard orden={orden} showTotals={false} hidePrices />
+
       <Card title="Tareas de la orden">
         {loadingTareas ? (
-          <p className="text-gray-600">Cargando tareas...</p>
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm font-medium text-gray-600">
+            Cargando tareas...
+          </div>
         ) : errorTareas ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4" />
             {errorTareas}
           </div>
         ) : tareas.length === 0 ? (
-          <p className="text-gray-600">No hay tareas registradas para esta orden.</p>
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500">
+            No hay tareas registradas para esta orden.
+          </div>
         ) : (
           <div className="grid gap-3">
             {[...tareas]
               .sort((a, b) => {
-                const orden = {
+                const prioridad = {
                   en_proceso: 0,
                   pendiente: 1,
                   completada: 2,
                 };
-                return (orden[a.estado] ?? 99) - (orden[b.estado] ?? 99);
+
+                return (
+                  (prioridad[a.estado] ?? 99) -
+                  (prioridad[b.estado] ?? 99)
+                );
               })
               .map((tarea) => (
                 <div
                   key={tarea.id}
-                  className="rounded-2xl border border-gray-200 p-4"
+                  className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="grid gap-2">
-                      <div>
-                        <p className="text-sm text-gray-500">Tipo de tarea</p>
-                        <p className="font-medium">
-                          {getTipoTareaLabel(tarea.tipo_tarea)}
-                        </p>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="flex gap-3">
+                      <div className="rounded-2xl bg-gray-50 p-3 text-gray-500">
+                        <Wrench className="h-5 w-5" />
                       </div>
 
-                      <div>
-                        <p className="text-sm text-gray-500">Descripción</p>
-                        <p className="font-medium">{tarea.descripcion || "-"}</p>
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-2">
                         <div>
-                          <p className="text-sm text-gray-500">Hora inicio</p>
-                          <p className="font-medium">
-                            {formatFechaHora(tarea.hora_inicio)}
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            Tipo de tarea
+                          </p>
+                          <p className="font-bold text-gray-900">
+                            {getTipoTareaLabel(tarea.tipo_tarea)}
                           </p>
                         </div>
 
                         <div>
-                          <p className="text-sm text-gray-500">Hora fin</p>
-                          <p className="font-medium">
-                            {formatFechaHora(tarea.hora_fin)}
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            Descripción
                           </p>
+                          <p className="font-medium text-gray-700">
+                            {tarea.descripcion || "-"}
+                          </p>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                              <Clock className="h-3.5 w-3.5" />
+                              Hora inicio
+                            </p>
+                            <p className="font-medium text-gray-700">
+                              {formatFechaHora(tarea.hora_inicio)}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                              <Clock className="h-3.5 w-3.5" />
+                              Hora fin
+                            </p>
+                            <p className="font-medium text-gray-700">
+                              {formatFechaHora(tarea.hora_fin)}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="grid gap-2">
+                    <div className="grid gap-2 md:min-w-[180px]">
                       <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getEstadoTareaClasses(
+                        className={`inline-flex w-fit rounded-full border px-3 py-1 text-sm font-bold ${getEstadoTareaClasses(
                           tarea.estado
                         )}`}
                       >
@@ -328,9 +426,12 @@ export function OrdenDetalleTecnicoView({
                               handleActualizarTarea(tarea.id, "en_proceso")
                             }
                             disabled={loadingQuickTaskId === tarea.id}
-                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
                           >
-                            {loadingQuickTaskId === tarea.id ? "..." : "Iniciar tarea"}
+                            <Play className="h-4 w-4" />
+                            {loadingQuickTaskId === tarea.id
+                              ? "..."
+                              : "Iniciar"}
                           </button>
                         ) : null}
 
@@ -341,9 +442,12 @@ export function OrdenDetalleTecnicoView({
                               handleActualizarTarea(tarea.id, "completada")
                             }
                             disabled={loadingQuickTaskId === tarea.id}
-                            className="rounded-xl bg-green-600 px-3 py-2 text-xs text-white disabled:opacity-60"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-green-600 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-green-700 disabled:opacity-60"
                           >
-                            {loadingQuickTaskId === tarea.id ? "..." : "Completar"}
+                            <CheckCircle2 className="h-4 w-4" />
+                            {loadingQuickTaskId === tarea.id
+                              ? "..."
+                              : "Completar"}
                           </button>
                         ) : null}
                       </div>
@@ -357,54 +461,83 @@ export function OrdenDetalleTecnicoView({
 
       <Card title="Cierre técnico">
         <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              Observaciones técnicas
-            </label>
+          <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Wrench className="h-4 w-4 text-gray-500" />
+              <label className="text-sm font-bold text-gray-700">
+                Observaciones técnicas
+              </label>
+            </div>
+
             <textarea
               value={observacionesTecnicas}
               onChange={(e) => setObservacionesTecnicas(e.target.value)}
-              className="min-h-24 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+              className="min-h-40 w-full rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-gray-400"
+              placeholder="Describe trabajos realizados, novedades, recomendaciones o pendientes."
             />
           </div>
 
           <div className="grid gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Kilometraje final
-              </label>
+            <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-gray-500" />
+                <label className="text-sm font-bold text-gray-700">
+                  Kilometraje final
+                </label>
+              </div>
+
               <input
                 type="number"
                 value={kilometrajeFinal}
                 onChange={(e) => setKilometrajeFinal(e.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium outline-none transition focus:border-gray-400"
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Próxima fecha
-              </label>
+            <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-gray-500" />
+                <label className="text-sm font-bold text-gray-700">
+                  Próxima fecha
+                </label>
+              </div>
+
               <input
                 type="date"
                 value={proximaFecha}
                 onChange={(e) => setProximaFecha(e.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium outline-none transition focus:border-gray-400"
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Próximo km
-              </label>
+            <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-gray-500" />
+                <label className="text-sm font-bold text-gray-700">
+                  Próximo km
+                </label>
+              </div>
+
               <input
                 type="number"
                 value={proximoKm}
                 onChange={(e) => setProximoKm(e.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium outline-none transition focus:border-gray-400"
               />
             </div>
           </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={handleFinalizarTrabajo}
+            disabled={loadingAction || !puedeFinalizarTrabajo}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-green-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-green-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            <Save className="h-4 w-4" />
+            {loadingAction ? "Guardando..." : "Guardar cierre técnico"}
+          </button>
         </div>
       </Card>
     </div>

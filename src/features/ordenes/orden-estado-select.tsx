@@ -32,8 +32,8 @@ export function OrdenEstadoSelect({
   const [error, setError] = useState("");
 
   const estadosDisponibles = useMemo(() => {
-    return getEstadosDisponiblesOrdenUI(rol, estadoActual);
-  }, [estadoActual, rol]);
+    return getEstadosDisponiblesOrdenUI(rol, estado);
+  }, [estado, rol]);
 
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const nuevoEstado = e.target.value as OrdenEstado;
@@ -73,7 +73,7 @@ export function OrdenEstadoSelect({
     }
   }
 
-  const isSoloLectura = esOrdenSoloLecturaUI(estadoActual);
+  const isSoloLectura = esOrdenSoloLecturaUI(estado);
 
   return (
     <div className="grid gap-1">

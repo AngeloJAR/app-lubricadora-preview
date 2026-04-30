@@ -4,7 +4,6 @@ import type { OrdenDetalle } from "@/types";
 import { OrdenDetalleAdminView } from "./orden-detalle-admin-view";
 import { OrdenDetalleTecnicoView } from "./orden-detalle-tecnico-view";
 
-
 type OrdenDetalleViewProps = {
   orden: OrdenDetalle;
   canManageOrden: boolean;

@@ -125,12 +125,19 @@ async function getMargenGananciaDecimal() {
   return margen > 0 ? margen / 100 : 0.45;
 }
 
-export async function getProductos(): Promise<Producto[]> {
+export async function getProductos() {
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("productos")
-    .select("*")
+    .select(`
+      *,
+      producto_aplicaciones_vehiculo (
+        vehiculo_marca,
+        vehiculo_modelo,
+        vehiculo_motor
+      )
+    `)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -138,7 +145,7 @@ export async function getProductos(): Promise<Producto[]> {
     throw new Error("No se pudieron cargar los productos");
   }
 
-  return (data ?? []) as Producto[];
+  return data ?? [];
 }
 
 export async function getAlertasStock() {
@@ -167,7 +174,7 @@ export async function getAlertasStock() {
       alertas.push({
         tipo: "error",
         titulo: "Producto sin stock",
-        descripcion: `${producto.nombre} está agotado. Reabastecer urgente.`,
+        descripcion: `${producto.nombre} está agotado.Reabastecer urgente.`,
       });
     } else if (stock > 0 && stock <= 5) {
       alertas.push({
@@ -186,6 +193,22 @@ export async function createProducto(payload: ProductoFormData) {
 
   const nombre = payload.nombre.trim();
   const categoria = payload.categoria.trim();
+
+  const { data: categoriaExiste, error: categoriaError } = await supabase
+    .from("categorias_productos")
+    .select("nombre")
+    .eq("nombre", categoria)
+    .eq("activo", true)
+    .maybeSingle();
+
+  if (categoriaError) {
+    console.error("Error validando categoría:", categoriaError.message);
+    throw new Error("No se pudo validar la categoría");
+  }
+
+  if (!categoriaExiste) {
+    throw new Error("Selecciona una categoría válida");
+  }
   const marca = payload.marca.trim() || null;
   const stockNuevo = payload.stock.trim() ? Number(payload.stock) : 0;
 
@@ -555,6 +578,26 @@ export async function updateProducto(
 
   const nombre = payload.nombre.trim();
   const categoria = payload.categoria.trim();
+
+  if (!categoria) {
+    throw new Error("La categoría es obligatoria");
+  }
+
+  const { data: categoriaExiste, error: categoriaError } = await supabase
+    .from("categorias_productos")
+    .select("nombre")
+    .eq("nombre", categoria)
+    .eq("activo", true)
+    .maybeSingle();
+
+  if (categoriaError) {
+    console.error("Error validando categoría:", categoriaError.message);
+    throw new Error("No se pudo validar la categoría");
+  }
+
+  if (!categoriaExiste) {
+    throw new Error("Selecciona una categoría válida");
+  }
   const marca = payload.marca.trim() || null;
   const stock = Number(payload.stock);
 
@@ -670,3 +713,463 @@ export async function getProductosParaReposicion() {
   return data ?? [];
 }
 
+export async function getCategoriasProductos() {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("categorias_productos")
+    .select("nombre")
+    .eq("activo", true)
+    .order("nombre", { ascending: true });
+
+  if (error) {
+    console.error("Error al obtener categorías:", error.message);
+    throw new Error("No se pudieron cargar las categorías");
+  }
+
+  const categorias = data?.map((item) => item.nombre) ?? [];
+
+  return categorias.sort((a, b) => {
+    if (a.toLowerCase() === "otros") return 1;
+    if (b.toLowerCase() === "otros") return -1;
+
+    return a.localeCompare(b, "es");
+  });
+}
+
+export type ProductoAplicacionVehiculo = {
+  id: string;
+  producto_id: string;
+  tipo_filtro: string;
+  vehiculo_marca: string;
+  vehiculo_modelo: string | null;
+  vehiculo_motor: string | null;
+  vehiculo_anio_desde: number | null;
+  vehiculo_anio_hasta: number | null;
+  codigo_referencia: string;
+  notas: string | null;
+  activo: boolean;
+  producto: {
+    id: string;
+    nombre: string;
+    categoria: string;
+    marca: string | null;
+    stock: number;
+    precio_venta: number;
+    activo: boolean;
+  } | null;
+};
+
+export async function getAplicacionesFiltrosAire(): Promise<
+  ProductoAplicacionVehiculo[]
+> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("producto_aplicaciones_vehiculo")
+    .select(
+      `
+      id,
+      producto_id,
+      tipo_filtro,
+      vehiculo_marca,
+      vehiculo_modelo,
+      vehiculo_motor,
+      vehiculo_anio_desde,
+      vehiculo_anio_hasta,
+      codigo_referencia,
+      notas,
+      activo,
+      producto: productos(
+        id,
+        nombre,
+        categoria,
+        marca,
+        stock,
+        precio_venta,
+        activo
+      )
+        `
+    )
+    .eq("tipo_filtro", "aire")
+    .eq("activo", true)
+    .order("vehiculo_marca", { ascending: true })
+    .order("vehiculo_modelo", { ascending: true });
+
+  if (error) {
+    console.error("Error cargando aplicaciones de filtros:", error.message);
+    throw new Error("No se pudieron cargar las aplicaciones de filtros");
+  }
+
+  return (data ?? []).map((item) => ({
+    ...item,
+    producto: Array.isArray(item.producto)
+      ? item.producto[0] ?? null
+      : item.producto ?? null,
+  })) as ProductoAplicacionVehiculo[];
+}
+
+export async function buscarFiltrosAire(params: {
+  busqueda: string;
+}): Promise<ProductoAplicacionVehiculo[]> {
+  const supabase = await createClient();
+
+  const busqueda = params.busqueda.trim();
+
+  if (!busqueda) {
+    return [];
+  }
+
+  const { data: equivalencias, error: equivalenciasError } = await supabase
+    .from("producto_equivalencias_filtro")
+    .select("producto_id")
+    .eq("tipo_filtro", "aire")
+    .eq("activo", true)
+    .ilike("codigo_equivalente", `%${busqueda}%`);
+
+  if (equivalenciasError) {
+    console.error("Error buscando equivalencias de filtros:", {
+      message: equivalenciasError.message,
+      code: equivalenciasError.code,
+      details: equivalenciasError.details,
+      hint: equivalenciasError.hint,
+    });
+
+    throw new Error("No se pudieron buscar equivalencias de filtros");
+  }
+
+  const productoIdsPorEquivalencia = Array.from(
+    new Set((equivalencias ?? []).map((item) => item.producto_id))
+  );
+
+  const filtrosOr = [
+    `vehiculo_marca.ilike.%${busqueda}%`,
+    `vehiculo_modelo.ilike.%${busqueda}%`,
+    `vehiculo_motor.ilike.%${busqueda}%`,
+    `codigo_referencia.ilike.%${busqueda}%`,
+  ];
+
+  if (productoIdsPorEquivalencia.length > 0) {
+    filtrosOr.push(`producto_id.in.(${productoIdsPorEquivalencia.join(",")})`);
+  }
+
+  const { data, error } = await supabase
+    .from("producto_aplicaciones_vehiculo")
+    .select(
+      `
+      id,
+      producto_id,
+      tipo_filtro,
+      vehiculo_marca,
+      vehiculo_modelo,
+      vehiculo_motor,
+      vehiculo_anio_desde,
+      vehiculo_anio_hasta,
+      codigo_referencia,
+      notas,
+      activo,
+      producto: productos(
+        id,
+        nombre,
+        categoria,
+        marca,
+        stock,
+        precio_venta,
+        activo
+      )
+      `
+    )
+    .eq("tipo_filtro", "aire")
+    .eq("activo", true)
+    .or(filtrosOr.join(","))
+    .order("stock", {
+      referencedTable: "productos",
+      ascending: false,
+    })
+    .order("vehiculo_marca", { ascending: true })
+    .limit(30);
+
+  if (error) {
+    console.error("Error buscando filtros de aire:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+
+    throw new Error(error.message || "No se pudieron buscar filtros de aire");
+  }
+
+  const resultados = (data ?? []).map((item) => ({
+    ...item,
+    producto: Array.isArray(item.producto)
+      ? item.producto[0] ?? null
+      : item.producto ?? null,
+  })) as ProductoAplicacionVehiculo[];
+
+  return resultados.sort((a, b) => {
+    const stockA = Number(a.producto?.stock ?? 0);
+    const stockB = Number(b.producto?.stock ?? 0);
+
+    if (stockA > 0 && stockB <= 0) return -1;
+    if (stockA <= 0 && stockB > 0) return 1;
+
+    if (stockB !== stockA) return stockB - stockA;
+
+    return `${a.vehiculo_marca} ${a.vehiculo_modelo ?? ""}`.localeCompare(
+      `${b.vehiculo_marca} ${b.vehiculo_modelo ?? ""}`,
+      "es"
+    );
+  });
+}
+
+export async function createAplicacionFiltroAire(payload: {
+  producto_id: string;
+  vehiculo_marca: string;
+  vehiculo_modelo?: string;
+  vehiculo_motor?: string;
+  vehiculo_anio_desde?: string;
+  vehiculo_anio_hasta?: string;
+  codigo_referencia: string;
+  notas?: string;
+}) {
+  const supabase = await requireAdmin();
+
+  const productoId = payload.producto_id.trim();
+  const vehiculoMarca = payload.vehiculo_marca.trim();
+  const vehiculoModelo = payload.vehiculo_modelo?.trim() || null;
+  const vehiculoMotor = payload.vehiculo_motor?.trim() || null;
+  const codigoReferencia = payload.codigo_referencia.trim();
+  const notas = payload.notas?.trim() || null;
+
+  if (!productoId) {
+    throw new Error("Selecciona un producto");
+  }
+
+  if (!vehiculoMarca) {
+    throw new Error("La marca del vehículo es obligatoria");
+  }
+
+  if (!codigoReferencia) {
+    throw new Error("El código de referencia es obligatorio");
+  }
+
+  if (!vehiculoModelo) {
+    throw new Error("El modelo del vehículo es obligatorio");
+  }
+
+  const anioDesde = payload.vehiculo_anio_desde?.trim()
+    ? Number(payload.vehiculo_anio_desde)
+    : null;
+
+  const anioHasta = payload.vehiculo_anio_hasta?.trim()
+    ? Number(payload.vehiculo_anio_hasta)
+    : null;
+
+  const { data, error } = await supabase
+    .from("producto_aplicaciones_vehiculo")
+    .insert([
+      {
+        producto_id: productoId,
+        tipo_filtro: "aire",
+        vehiculo_marca: vehiculoMarca,
+        vehiculo_modelo: vehiculoModelo,
+        vehiculo_motor: vehiculoMotor,
+        vehiculo_anio_desde: anioDesde,
+        vehiculo_anio_hasta: anioHasta,
+        codigo_referencia: codigoReferencia,
+        notas,
+        activo: true,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creando aplicación de filtro:", error.message);
+    throw new Error(error.message || "No se pudo crear la aplicación del filtro");
+  }
+
+  return data;
+}
+
+export async function buscarCatalogoGeneral(params: {
+  busqueda: string;
+}) {
+  const supabase = await createClient();
+
+  const busqueda = params.busqueda.trim();
+
+  if (!busqueda) return [];
+
+  const { data: productos, error: productosError } = await supabase
+    .from("productos")
+    .select(`
+      id,
+      nombre,
+      categoria,
+      marca,
+      stock,
+      precio_venta,
+      activo,
+      notas
+    `)
+    .eq("activo", true)
+    .or(
+      [
+        `nombre.ilike.%${busqueda}%`,
+        `marca.ilike.%${busqueda}%`,
+        `categoria.ilike.%${busqueda}%`,
+        `notas.ilike.%${busqueda}%`,
+      ].join(",")
+    )
+    .limit(30);
+
+  if (productosError) {
+    console.error("Error buscando productos:", productosError.message);
+    throw new Error("No se pudieron buscar productos");
+  }
+
+  const productoIds = (productos ?? []).map((producto) => producto.id);
+
+  const { data: aplicacionesDirectas, error: aplicacionesDirectasError } =
+    await supabase
+      .from("producto_aplicaciones_vehiculo")
+      .select(`
+        id,
+        producto_id,
+        tipo_filtro,
+        vehiculo_marca,
+        vehiculo_modelo,
+        vehiculo_motor,
+        vehiculo_anio_desde,
+        vehiculo_anio_hasta,
+        codigo_referencia,
+        notas,
+        activo,
+        producto: productos(
+          id,
+          nombre,
+          categoria,
+          marca,
+          stock,
+          precio_venta,
+          activo
+        )
+      `)
+      .eq("activo", true)
+      .or(
+        [
+          `vehiculo_marca.ilike.%${busqueda}%`,
+          `vehiculo_modelo.ilike.%${busqueda}%`,
+          `vehiculo_motor.ilike.%${busqueda}%`,
+          `codigo_referencia.ilike.%${busqueda}%`,
+          `notas.ilike.%${busqueda}%`,
+        ].join(",")
+      )
+      .limit(30);
+
+  if (aplicacionesDirectasError) {
+    console.error("Error buscando aplicaciones:", aplicacionesDirectasError.message);
+    throw new Error("No se pudieron buscar aplicaciones");
+  }
+
+  let aplicacionesPorProducto: typeof aplicacionesDirectas = [];
+
+  if (productoIds.length > 0) {
+    const { data, error } = await supabase
+      .from("producto_aplicaciones_vehiculo")
+      .select(`
+        id,
+        producto_id,
+        tipo_filtro,
+        vehiculo_marca,
+        vehiculo_modelo,
+        vehiculo_motor,
+        vehiculo_anio_desde,
+        vehiculo_anio_hasta,
+        codigo_referencia,
+        notas,
+        activo,
+        producto: productos(
+          id,
+          nombre,
+          categoria,
+          marca,
+          stock,
+          precio_venta,
+          activo
+        )
+      `)
+      .eq("activo", true)
+      .in("producto_id", productoIds)
+      .limit(30);
+
+    if (error) {
+      console.error("Error buscando aplicaciones por producto:", error.message);
+      throw new Error("No se pudieron buscar aplicaciones del producto");
+    }
+
+    aplicacionesPorProducto = data ?? [];
+  }
+
+  const aplicacionesNormalizadas = [
+    ...(aplicacionesDirectas ?? []),
+    ...(aplicacionesPorProducto ?? []),
+  ].map((aplicacion) => ({
+    ...aplicacion,
+    producto: Array.isArray(aplicacion.producto)
+      ? aplicacion.producto[0] ?? null
+      : aplicacion.producto ?? null,
+  }));
+
+  const productosConAplicacion = new Set(
+    aplicacionesNormalizadas
+      .map((aplicacion) => aplicacion.producto_id)
+      .filter(Boolean)
+  );
+
+  const resultados = [
+    ...aplicacionesNormalizadas.map((aplicacion) => ({
+      tipo: "aplicacion" as const,
+      id: aplicacion.id,
+      producto: aplicacion.producto,
+      aplicacion,
+    })),
+
+    ...(productos ?? [])
+      .filter((producto) => !productosConAplicacion.has(producto.id))
+      .map((producto) => ({
+        tipo: "producto" as const,
+        id: producto.id,
+        producto,
+        aplicacion: null,
+      })),
+  ];
+
+  const unicos = new Map<string, (typeof resultados)[number]>();
+
+  for (const item of resultados) {
+    const productoId = item.producto?.id;
+    if (!productoId) continue;
+
+    const key =
+      item.tipo === "aplicacion"
+        ? `${productoId}-${item.aplicacion?.id}`
+        : productoId;
+
+    if (!unicos.has(key)) {
+      unicos.set(key, item);
+    }
+  }
+
+  return Array.from(unicos.values()).sort((a, b) => {
+    const stockA = Number(a.producto?.stock ?? 0);
+    const stockB = Number(b.producto?.stock ?? 0);
+
+    if (stockA > 0 && stockB <= 0) return -1;
+    if (stockA <= 0 && stockB > 0) return 1;
+
+    return stockB - stockA;
+  });
+}

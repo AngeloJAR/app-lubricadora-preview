@@ -1,7 +1,8 @@
 export function calcularDescuentoPorPuntos(puntos: number) {
-  if (puntos <= 0) {
-    return 0;
-  }
+  if (!puntos || puntos <= 0) return 0;
 
-  return Number((puntos * 0.1).toFixed(2));
+  const puntosEnteros = Math.floor(puntos);
+  const descuento = puntosEnteros * 0.1;
+
+  return Math.round(descuento * 100) / 100;
 }

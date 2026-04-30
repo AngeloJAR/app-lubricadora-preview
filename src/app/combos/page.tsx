@@ -21,7 +21,6 @@ export default async function CombosPage() {
       </div>
 
       <CombosPageClient
-        combos={combosDetalle}
         combosDetalle={combosDetalle}
         onRefresh={refreshCombos}
       />

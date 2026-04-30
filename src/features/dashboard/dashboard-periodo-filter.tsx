@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   getDashboardPeriodoLabel,
@@ -14,7 +16,7 @@ export function DashboardPeriodoFilter({
   periodo,
 }: DashboardPeriodoFilterProps) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
       {periodos.map((item) => {
         const active = item === periodo;
 
@@ -22,10 +24,10 @@ export function DashboardPeriodoFilter({
           <Link
             key={item}
             href={`/dashboard?periodo=${item}`}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
               active
-                ? "bg-yellow-500 border border-yellow-300 text-white"
-                : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                ? "bg-yellow-500 text-white shadow-md"
+                : "text-slate-600 hover:bg-slate-100"
             }`}
           >
             {getDashboardPeriodoLabel(item)}

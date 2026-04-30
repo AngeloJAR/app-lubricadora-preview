@@ -73,6 +73,7 @@ export default async function DashboardPage({
     accionesSugeridas,
     serieFinanciera,
   ] = await Promise.all([
+
     getDashboardMetricas(periodo),
     getDashboardResumenDinero(periodo),
     getDashboardAlertas(periodo),
@@ -81,7 +82,9 @@ export default async function DashboardPage({
   ]);
 
   return (
+
     <AppShell title={`Dashboard · ${perfil.rol}`}>
+
       <div className="mb-4">
         <p className="text-gray-600">
           Resumen general del negocio y accesos rápidos a cada sección.

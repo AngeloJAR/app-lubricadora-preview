@@ -1,8 +1,14 @@
 "use client";
 
-
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ClipboardEdit,
+  FileText,
+  Save,
+} from "lucide-react";
 import { OrdenStoragePdfButton } from "./components/actions";
 
 import {
@@ -14,9 +20,9 @@ import {
   getVehiculosByCliente,
   updateOrden,
 } from "./actions";
+
 import type {
   Cliente,
-  OrdenEditable,
   OrdenFormData,
   Producto,
   Servicio,
@@ -36,11 +42,11 @@ import {
 
 import { buildUpdatedOrdenItems } from "./domain/orden-edit-item-updater";
 import type { TecnicoOption } from "./domain/orden-edit-types";
+
 import {
   validateOrdenEditBase,
   validateOrdenEditStock,
 } from "./domain/orden-edit-form-validations";
-
 
 import {
   OrdenEditClienteVehiculoSection,
@@ -49,10 +55,10 @@ import {
   OrdenEditTecnicosSection,
   OrdenEditTotalesSection,
 } from "./components/edit";
+
 type OrdenEditFormProps = {
   ordenId: string;
 };
-
 
 export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
   const router = useRouter();
@@ -63,6 +69,7 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [tecnicos, setTecnicos] = useState<TecnicoOption[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState("");
@@ -103,21 +110,22 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
         );
 
         const mappedForm = mapOrdenEditableToForm(ordenData);
+
         setForm(mappedForm);
-        setCantidadesOriginalesProductos(getCantidadesOriginalesProductos(ordenData));
+        setCantidadesOriginalesProductos(
+          getCantidadesOriginalesProductos(ordenData)
+        );
 
         const vehiculosData = await getVehiculosByCliente(ordenData.cliente_id);
         setVehiculos(vehiculosData);
 
-        const preOrdenDetectada = String(ordenData.numero ?? "")
-          .toUpperCase()
-          .startsWith("PRE-");
-
-        setEsPreOrdenOriginal(preOrdenDetectada);
+        setEsPreOrdenOriginal(
+          String(ordenData.numero ?? "").toUpperCase().startsWith("PRE-")
+        );
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "No se pudieron cargar los datos";
-        setError(message);
+        setError(
+          err instanceof Error ? err.message : "No se pudieron cargar los datos"
+        );
       } finally {
         setLoadingData(false);
       }
@@ -137,11 +145,11 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
         const data = await getVehiculosByCliente(form.cliente_id);
         setVehiculos(data);
       } catch (err) {
-        const message =
+        setError(
           err instanceof Error
             ? err.message
-            : "No se pudieron cargar los vehículos";
-        setError(message);
+            : "No se pudieron cargar los vehículos"
+        );
       }
     }
 
@@ -211,6 +219,7 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
       items: prev.items.filter((_, itemIndex) => itemIndex !== index),
     }));
   }
+
   const subtotal = useMemo(() => getSubtotal(form.items), [form.items]);
 
   const total = useMemo(
@@ -220,8 +229,10 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     setError("");
     setSuccess("");
+
     const baseValidation = validateOrdenEditBase(form);
 
     if (!baseValidation.ok) {
@@ -252,6 +263,7 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
 
     try {
       setLoading(true);
+
       await updateOrden(ordenId, formToSubmit);
 
       setSuccess(
@@ -265,23 +277,40 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
         router.refresh();
       }, 700);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No se pudo actualizar la orden";
-      setError(message);
+      setError(
+        err instanceof Error ? err.message : "No se pudo actualizar la orden"
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
+    <form onSubmit={handleSubmit} className="grid gap-5">
+      <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-yellow-50 p-3 text-yellow-600">
+            <ClipboardEdit className="h-5 w-5" />
+          </div>
+
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              Editar orden
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Revisa cliente, vehículo, técnicos, items y totales antes de guardar.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {esPreOrdenOriginal ? (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm font-semibold text-blue-900">
+        <div className="rounded-3xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+          <p className="text-sm font-bold text-blue-900">
             Estás revisando una pre-orden.
           </p>
           <p className="mt-1 text-sm text-blue-800">
-            Aquí debes asignar técnico principal y técnicos participantes para dejarla lista.
+            Asigna técnico principal y técnicos participantes para dejarla lista.
           </p>
         </div>
       ) : null}
@@ -345,42 +374,62 @@ export function OrdenEditForm({ ordenId }: OrdenEditFormProps) {
         onDescuentoChange={(value) => updateField("descuento", value)}
       />
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Notas</label>
+      <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <FileText className="h-4 w-4 text-gray-500" />
+          <label className="text-sm font-bold text-gray-700">Notas</label>
+        </div>
+
         <textarea
           value={form.notas}
           onChange={(e) => updateField("notas", e.target.value)}
-          className="min-h-24 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+          className="min-h-28 w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
           placeholder="Observaciones de recepción..."
         />
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+          <AlertCircle className="mt-0.5 h-5 w-5" />
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-3 text-sm font-medium text-green-700">
+          <CheckCircle2 className="mt-0.5 h-5 w-5" />
           {success}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={loading || loadingData}
-          className="rounded-xl border border-yellow-300 bg-yellow-500 px-4 py-2 text-white transition hover:opacity-90 disabled:opacity-60"
-        >
-          {loading
-            ? "Guardando..."
-            : esPreOrdenOriginal
-              ? "Guardar y asignar"
-              : "Guardar cambios"}
-        </button>
+      <div className="sticky bottom-4 z-20 rounded-3xl border border-gray-200 bg-white/95 p-4 shadow-xl backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-gray-900">
+              {esPreOrdenOriginal ? "Guardar revisión" : "Guardar cambios"}
+            </p>
+            <p className="text-xs text-gray-500">
+              Se actualizarán los datos, items, técnicos y totales de la orden.
+            </p>
+          </div>
 
-        <OrdenStoragePdfButton ordenId={ordenId} />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="submit"
+              disabled={loading || loadingData}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-yellow-300 bg-yellow-500 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save className="h-4 w-4" />
+              {loading
+                ? "Guardando..."
+                : esPreOrdenOriginal
+                  ? "Guardar y asignar"
+                  : "Guardar cambios"}
+            </button>
+
+            <OrdenStoragePdfButton ordenId={ordenId} />
+          </div>
+        </div>
       </div>
     </form>
   );

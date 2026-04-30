@@ -152,7 +152,7 @@ function MetricCard({
   title,
   value,
   description,
-  valueClassName = "text-gray-900",
+  valueClassName = "text-slate-900",
 }: {
   title: string;
   value: string;
@@ -160,10 +160,18 @@ function MetricCard({
   valueClassName?: string;
 }) {
   return (
-    <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-      <p className="text-sm font-medium text-gray-500">{title}</p>
-      <p className={`mt-3 text-3xl font-bold ${valueClassName}`}>{value}</p>
-      <p className="mt-2 text-sm text-gray-500">{description}</p>
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {title}
+      </p>
+
+      <p className={`mt-3 text-2xl font-bold tracking-tight ${valueClassName}`}>
+        {value}
+      </p>
+
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        {description}
+      </p>
     </section>
   );
 }
@@ -181,8 +189,9 @@ export function DashboardView({
   const safeAlertas = alertas ?? [];
   const safeAcciones = accionesSugeridas ?? [];
   const safeSerieFinanciera = serieFinanciera ?? [];
-  const periodoLabel = getDashboardPeriodoLabel(periodo); const router = useRouter();
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const periodoLabel = getDashboardPeriodoLabel(periodo);
+  const router = useRouter();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const supabase = createClient();
 
@@ -192,7 +201,7 @@ export function DashboardView({
       timeoutRef.current = setTimeout(() => {
         router.refresh();
         timeoutRef.current = null;
-      }, 1500); // evita spam de refresh
+      }, 1500);
     };
 
     const channel = supabase
@@ -256,7 +265,7 @@ export function DashboardView({
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
@@ -290,13 +299,13 @@ export function DashboardView({
         <MetricCard
           title={`Ingresos · ${periodoLabel}`}
           value={formatCurrency(metricas?.ventas_hoy)}
-          description="Total vendido en el período seleccionado."
+          description="Cobros operativos registrados en el período."
         />
 
         <MetricCard
           title={`Utilidad operativa · ${periodoLabel}`}
           value={formatCurrency(metricas?.utilidad_hoy)}
-          description="Ingresos - egresos operativos del período."
+          description="Cobros - costos - gastos del período."
           valueClassName={
             utilidadPeriodo < 0 ? "text-red-600" : "text-green-700"
           }
@@ -305,13 +314,13 @@ export function DashboardView({
         <MetricCard
           title="Ingresos del mes"
           value={formatCurrency(metricas?.ventas_mes)}
-          description="Total vendido este mes."
+          description="Cobros operativos registrados este mes."
         />
 
         <MetricCard
           title="Utilidad operativa del mes"
           value={formatCurrency(metricas?.utilidad_mes)}
-          description="Resultado operativo acumulado del mes."
+          description="Cobros - costos - gastos del mes."
           valueClassName={utilidadMes < 0 ? "text-red-600" : "text-green-700"}
         />
       </div>
@@ -408,7 +417,7 @@ export function DashboardView({
         <MetricCard
           title={`Margen · ${periodoLabel}`}
           value={formatPercent(metricas?.margen_hoy)}
-          description="Porcentaje de ganancia sobre ingresos."
+          description="Porcentaje de utilidad sobre cobros."
           valueClassName={
             margenPeriodo < 0
               ? "text-red-600"
@@ -429,6 +438,21 @@ export function DashboardView({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <MetricCard
+          title={`Costos de productos · ${periodoLabel}`}
+          value={formatCurrency(metricas?.costos_hoy)}
+          description="Costo estimado de productos vendidos en el período."
+        />
+        <MetricCard
+          title={`Egresos operativos · ${periodoLabel}`}
+          value={formatCurrency(metricas?.gastos_hoy)}
+          description="Gastos operativos registrados en el período."
+        />
+        <MetricCard
+          title="Costos de productos del mes"
+          value={formatCurrency(metricas?.costos_mes)}
+          description="Costo estimado de productos vendidos este mes."
+        />
         <MetricCard
           title="Egresos operativos del mes"
           value={formatCurrency(metricas?.gastos_mes)}

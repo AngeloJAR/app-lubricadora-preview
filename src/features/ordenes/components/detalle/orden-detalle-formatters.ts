@@ -3,16 +3,22 @@ import type { OrdenTareaTecnico } from "@/types";
 export function formatFecha(fecha?: string | null) {
   if (!fecha) return "-";
 
+  const date = new Date(fecha);
+  if (Number.isNaN(date.getTime())) return "-";
+
   return new Intl.DateTimeFormat("es-EC", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     timeZone: "America/Guayaquil",
-  }).format(new Date(fecha));
+  }).format(date);
 }
 
 export function formatFechaHora(fecha?: string | null) {
   if (!fecha) return "-";
+
+  const date = new Date(fecha);
+  if (Number.isNaN(date.getTime())) return "-";
 
   return new Intl.DateTimeFormat("es-EC", {
     year: "numeric",
@@ -23,11 +29,14 @@ export function formatFechaHora(fecha?: string | null) {
     second: "2-digit",
     hour12: false,
     timeZone: "America/Guayaquil",
-  }).format(new Date(fecha));
+  }).format(date);
 }
 
 export function formatMoney(value?: number | string | null) {
-  return `$${Number(value ?? 0).toFixed(2)}`;
+  const parsed = Number(value ?? 0);
+  const safeValue = Number.isFinite(parsed) ? parsed : 0;
+
+  return `$${safeValue.toFixed(2)}`;
 }
 
 export function getEstadoTareaLabel(estado: OrdenTareaTecnico["estado"]) {

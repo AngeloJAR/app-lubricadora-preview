@@ -1,3 +1,5 @@
+import { CalendarDays, Gauge, Wrench } from "lucide-react";
+
 type Props = {
   kilometraje: string;
   proximoMantenimientoFecha: string;
@@ -16,35 +18,69 @@ export function OrdenEditMantenimientoSection({
   onProximoMantenimientoKmChange,
 }: Props) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <div>
-        <label className="mb-1 block text-sm font-medium">Kilometraje</label>
-        <input
-          type="number"
-          value={kilometraje}
-          onChange={(e) => onKilometrajeChange(e.target.value)}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-        />
+    <div className="grid gap-4 rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Wrench className="h-4 w-4 text-gray-500" />
+        <h3 className="text-sm font-semibold text-gray-700">
+          Mantenimiento
+        </h3>
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Próxima fecha</label>
-        <input
-          type="date"
-          value={proximoMantenimientoFecha}
-          onChange={(e) => onProximoMantenimientoFechaChange(e.target.value)}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-        />
-      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* KILOMETRAJE */}
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-gray-400" />
+            <label className="text-xs font-semibold text-gray-500">
+              Kilometraje
+            </label>
+          </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Próximo km</label>
-        <input
-          type="number"
-          value={proximoMantenimientoKm}
-          onChange={(e) => onProximoMantenimientoKmChange(e.target.value)}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-        />
+          <input
+            type="number"
+            value={kilometraje}
+            onChange={(e) => onKilometrajeChange(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-400"
+          />
+        </div>
+
+        {/* FECHA */}
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-gray-400" />
+            <label className="text-xs font-semibold text-gray-500">
+              Próxima fecha
+            </label>
+          </div>
+
+          <input
+            type="date"
+            value={proximoMantenimientoFecha}
+            onChange={(e) =>
+              onProximoMantenimientoFechaChange(e.target.value)
+            }
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-400"
+          />
+        </div>
+
+        {/* KM FUTURO */}
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-gray-400" />
+            <label className="text-xs font-semibold text-gray-500">
+              Próximo km
+            </label>
+          </div>
+
+          <input
+            type="number"
+            value={proximoMantenimientoKm}
+            onChange={(e) =>
+              onProximoMantenimientoKmChange(e.target.value)
+            }
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-400"
+          />
+        </div>
       </div>
     </div>
   );

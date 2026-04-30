@@ -1,6 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  AlertCircle,
+  Boxes,
+  CheckCircle2,
+  DollarSign,
+  Loader2,
+  PackageCheck,
+  PackagePlus,
+  PackageSearch,
+  Search,
+  TrendingUp,
+} from "lucide-react";
 import { agregarStockProducto } from "./actions";
 import type { Producto, ProductoStockFormData } from "@/types";
 import { getConfiguracionTaller } from "@/features/configuracion/actions";
@@ -20,15 +32,10 @@ const initialState: ProductoStockFormData = {
 };
 
 function toNumber(value: string | number | null | undefined) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
 
   if (typeof value === "string") {
-    const normalized = value.trim().replace(",", ".");
-    if (!normalized) return 0;
-
-    const parsed = Number(normalized);
+    const parsed = Number(value.trim().replace(",", "."));
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
@@ -37,6 +44,10 @@ function toNumber(value: string | number | null | undefined) {
 
 function round2(value: number) {
   return Number(value.toFixed(2));
+}
+
+function money(value: number) {
+  return `$${Number(value || 0).toFixed(2)}`;
 }
 
 export function ProductoStockForm({
@@ -67,23 +78,45 @@ export function ProductoStockForm({
   const productosFiltrados = useMemo(() => {
     const normalized = searchProducto.trim().toLowerCase();
 
-    if (!normalized) {
-      return productos.slice(0, 12);
-    }
-
-    return productos
+    const base = productos
       .filter((producto) => {
-        const nombre = (producto.nombre ?? "").toLowerCase();
-        const categoria = (producto.categoria ?? "").toLowerCase();
-        const marca = (producto.marca ?? "").toLowerCase();
+        if (!normalized) return true;
 
-        return (
-          nombre.includes(normalized) ||
-          categoria.includes(normalized) ||
-          marca.includes(normalized)
-        );
+        const baseTexto = [
+          producto.nombre,
+          producto.categoria,
+          producto.marca,
+          producto.stock,
+          producto.precio_venta,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        const aplicacionesTexto = (
+          producto.producto_aplicaciones_vehiculo ?? []
+        )
+          .map((a) =>
+            [a.vehiculo_marca, a.vehiculo_modelo, a.vehiculo_motor]
+              .filter(Boolean)
+              .join(" ")
+          )
+          .join(" ")
+          .toLowerCase();
+
+        return `${baseTexto} ${aplicacionesTexto}`.includes(normalized);
       })
-      .slice(0, 12);
+      .sort((a, b) => {
+        const stockA = Number(a.stock ?? 0);
+        const stockB = Number(b.stock ?? 0);
+
+        if (stockA <= 0 && stockB > 0) return -1;
+        if (stockA > 0 && stockB <= 0) return 1;
+
+        return String(a.nombre ?? "").localeCompare(String(b.nombre ?? ""), "es");
+      });
+
+    return base.slice(0, 10);
   }, [productos, searchProducto]);
 
   const productoSeleccionado = useMemo(
@@ -102,8 +135,13 @@ export function ProductoStockForm({
         precioVentaSugeridoConIVA: 0,
         gananciaUnitaria: 0,
         margen: 0,
+        totalCompra: 0,
+        totalVentaPotencial: 0,
+        totalGananciaPotencial: 0,
       };
     }
+
+    const cantidad = toNumber(form.cantidad);
 
     const precioCompraIngresado =
       form.precio_compra.trim() !== ""
@@ -112,28 +150,28 @@ export function ProductoStockForm({
           ? round2(Number(productoSeleccionado.precio_compra ?? 0) * (1 + IVA))
           : Number(productoSeleccionado.precio_compra ?? 0);
 
-    const precioCompraConIVA = Boolean(productoSeleccionado.precio_compra_incluye_iva)
+    const precioCompraConIVA = Boolean(
+      productoSeleccionado.precio_compra_incluye_iva
+    )
       ? round2(precioCompraIngresado)
       : round2(precioCompraIngresado * (1 + IVA));
 
-    const precioCompraSinIVA = Boolean(productoSeleccionado.precio_compra_incluye_iva)
+    const precioCompraSinIVA = Boolean(
+      productoSeleccionado.precio_compra_incluye_iva
+    )
       ? round2(precioCompraIngresado / (1 + IVA))
       : round2(precioCompraIngresado);
 
-    const descuentoFiltro = Boolean(productoSeleccionado.incluye_filtro)
-      ? toNumber(productoSeleccionado.costo_filtro)
-      : 0;
-
-    const descuentoAmbiental = Boolean(productoSeleccionado.incluye_ambiental)
-      ? toNumber(productoSeleccionado.costo_ambiental)
-      : 0;
-
-    const descuentoTarjeta = Boolean(productoSeleccionado.incluye_tarjeta)
-      ? toNumber(productoSeleccionado.costo_tarjeta)
-      : 0;
-
     const descuentoExtras = round2(
-      descuentoFiltro + descuentoAmbiental + descuentoTarjeta
+      (productoSeleccionado.incluye_filtro
+        ? toNumber(productoSeleccionado.costo_filtro)
+        : 0) +
+        (productoSeleccionado.incluye_ambiental
+          ? toNumber(productoSeleccionado.costo_ambiental)
+          : 0) +
+        (productoSeleccionado.incluye_tarjeta
+          ? toNumber(productoSeleccionado.costo_tarjeta)
+          : 0)
     );
 
     const costoReal = Math.max(0, round2(precioCompraSinIVA - descuentoExtras));
@@ -148,6 +186,10 @@ export function ProductoStockForm({
         ? round2((gananciaUnitaria / precioVentaSugeridoSinIVA) * 100)
         : 0;
 
+    const totalCompra = round2(precioCompraConIVA * cantidad);
+    const totalVentaPotencial = round2(precioVentaSugeridoSinIVA * cantidad);
+    const totalGananciaPotencial = round2(gananciaUnitaria * cantidad);
+
     return {
       precioCompraConIVA,
       precioCompraSinIVA,
@@ -157,17 +199,24 @@ export function ProductoStockForm({
       precioVentaSugeridoConIVA,
       gananciaUnitaria,
       margen,
+      totalCompra,
+      totalVentaPotencial,
+      totalGananciaPotencial,
     };
-  }, [productoSeleccionado, form.precio_compra, margenGanancia]);
+  }, [
+    productoSeleccionado,
+    form.precio_compra,
+    form.cantidad,
+    margenGanancia,
+  ]);
 
   function updateField<K extends keyof ProductoStockFormData>(
     key: K,
     value: ProductoStockFormData[K]
   ) {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setError("");
+    setSuccess("");
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -180,7 +229,7 @@ export function ProductoStockForm({
       return;
     }
 
-    if (!form.cantidad.trim() || Number(form.cantidad) <= 0) {
+    if (!form.cantidad.trim() || toNumber(form.cantidad) <= 0) {
       setError("La cantidad debe ser mayor a 0.");
       return;
     }
@@ -203,47 +252,68 @@ export function ProductoStockForm({
       setForm(initialState);
       setSearchProducto("");
 
-      if (onCreated) {
-        await onCreated();
-      }
+      await onCreated?.();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No se pudo agregar stock.";
-
-      setError(message);
+      setError(err instanceof Error ? err.message : "No se pudo agregar stock.");
     } finally {
       setLoading(false);
     }
   }
 
+  const rentabilidadTexto =
+    resumenPrecio.gananciaUnitaria < 0
+      ? "Pierdes dinero con este precio."
+      : resumenPrecio.gananciaUnitaria === 0
+        ? "No tienes ganancia con este precio."
+        : "Reposición con ganancia positiva.";
+
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <div className="grid gap-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium">
-            Buscar producto
-          </label>
-          <input
-            value={searchProducto}
-            onChange={(e) => setSearchProducto(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="Escribe nombre, categoría o marca..."
-          />
+    <form onSubmit={handleSubmit} className="grid gap-5">
+      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white p-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-yellow-100 p-3 text-yellow-700">
+              <PackagePlus className="h-5 w-5" />
+            </div>
+
+            <div>
+              <h2 className="text-lg font-black text-slate-900">
+                Agregar stock existente
+              </h2>
+              <p className="text-sm text-slate-500">
+                Busca un producto ya registrado y actualiza su stock con el
+                nuevo costo de compra.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
-          <p className="mb-3 text-sm font-semibold text-gray-900">
-            Resultados
-          </p>
+        <div className="grid gap-4 p-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              Buscar producto
+            </label>
 
-          {productosFiltrados.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No hay productos que coincidan con la búsqueda.
-            </p>
-          ) : (
-            <div className="grid gap-2">
-              {productosFiltrados.map((producto) => {
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchProducto}
+                onChange={(e) => setSearchProducto(e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm outline-none transition focus:border-yellow-500 focus:bg-white focus:ring-4 focus:ring-yellow-100"
+                placeholder="Buscar producto, marca, categoría o vehículo..."
+              />
+            </div>
+          </div>
+
+          <div className="grid max-h-[380px] gap-2 overflow-y-auto pr-1">
+            {productosFiltrados.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-500">
+                No hay productos que coincidan.
+              </div>
+            ) : (
+              productosFiltrados.map((producto) => {
                 const seleccionado = form.producto_id === producto.id;
+                const stock = Number(producto.stock ?? 0);
 
                 return (
                   <button
@@ -253,196 +323,315 @@ export function ProductoStockForm({
                       updateField("producto_id", producto.id);
                       setSearchProducto(producto.nombre ?? "");
                     }}
-                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                    className={`rounded-2xl border p-4 text-left transition ${
                       seleccionado
-                        ? "border-yellow-400 bg-yellow-50"
-                        : "border-gray-200 bg-white hover:bg-gray-50"
+                        ? "border-yellow-400 bg-yellow-50 ring-4 ring-yellow-100"
+                        : "border-slate-200 bg-white hover:border-yellow-200 hover:bg-yellow-50/40"
                     }`}
                   >
-                    <p className="font-medium text-gray-900">
-                      {producto.nombre}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {producto.categoria}
-                      {producto.marca ? ` • ${producto.marca}` : ""}
-                      {typeof producto.stock !== "undefined"
-                        ? ` • Stock: ${producto.stock}`
-                        : ""}
-                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-black text-slate-900">
+                            {producto.nombre}
+                          </p>
+
+                          {seleccionado ? (
+                            <span className="rounded-full bg-yellow-500 px-2 py-0.5 text-[11px] font-bold text-white">
+                              Seleccionado
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="mt-1 text-xs font-medium text-slate-500">
+                          {[producto.categoria, producto.marca]
+                            .filter(Boolean)
+                            .join(" • ") || "Producto del inventario"}
+                        </p>
+
+                        {(producto.producto_aplicaciones_vehiculo?.length ?? 0) >
+                        0 ? (
+                          <p className="mt-1 line-clamp-1 text-xs text-slate-600">
+                            {(producto.producto_aplicaciones_vehiculo ?? [])
+                              .slice(0, 3)
+                              .map((a) =>
+                                [
+                                  a.vehiculo_marca,
+                                  a.vehiculo_modelo,
+                                  a.vehiculo_motor,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")
+                              )
+                              .join(" • ")}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-black ${
+                            stock > 0
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          Stock {stock}
+                        </span>
+
+                        <p className="mt-2 text-xs font-bold text-slate-600">
+                          Venta {money(Number(producto.precio_venta ?? 0))}
+                        </p>
+                      </div>
+                    </div>
                   </button>
                 );
-              })}
-            </div>
-          )}
+              })
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
       {productoSeleccionado ? (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Cantidad a ingresar
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={form.cantidad}
-                onChange={(e) => updateField("cantidad", e.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-                placeholder="10"
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+                <Boxes className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h3 className="font-black text-slate-900">
+                  Datos de reposición
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Ingresa la cantidad y el costo real de la nueva compra.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Cantidad a ingresar
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={form.cantidad}
+                  onChange={(e) => updateField("cantidad", e.target.value)}
+                  className="h-11 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                  placeholder="Ej: 10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Precio compra facturado
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.precio_compra}
+                  onChange={(e) => updateField("precio_compra", e.target.value)}
+                  className="h-11 w-full rounded-2xl border border-slate-200 px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                  placeholder="Ej: 22.55"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Ingresa el valor tal como cobra el proveedor.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+
+                <div>
+                  <h3 className="font-black text-slate-900">
+                    Resumen automático
+                  </h3>
+                  <p
+                    className={`text-sm font-medium ${
+                      resumenPrecio.gananciaUnitaria > 0
+                        ? "text-emerald-600"
+                        : resumenPrecio.gananciaUnitaria < 0
+                          ? "text-red-600"
+                          : "text-slate-500"
+                    }`}
+                  >
+                    {rentabilidadTexto}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-yellow-200 bg-yellow-50 px-5 py-3 text-right">
+                <p className="text-xs font-bold uppercase tracking-wide text-yellow-700">
+                  Venta sugerida
+                </p>
+                <p className="text-2xl font-black text-yellow-900">
+                  {money(resumenPrecio.precioVentaSugeridoSinIVA)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-3 grid gap-3 md:grid-cols-3">
+              <InfoCard
+                icon={<DollarSign className="h-5 w-5" />}
+                label="Total compra"
+                value={money(resumenPrecio.totalCompra)}
+                tone="yellow"
+              />
+              <InfoCard
+                icon={<PackageCheck className="h-5 w-5" />}
+                label="Venta potencial"
+                value={money(resumenPrecio.totalVentaPotencial)}
+                tone="blue"
+              />
+              <InfoCard
+                icon={<TrendingUp className="h-5 w-5" />}
+                label="Ganancia potencial"
+                value={money(resumenPrecio.totalGananciaPotencial)}
+                tone={
+                  resumenPrecio.totalGananciaPotencial > 0
+                    ? "green"
+                    : resumenPrecio.totalGananciaPotencial < 0
+                      ? "red"
+                      : "slate"
+                }
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Nuevo precio compra facturado
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.precio_compra}
-                onChange={(e) => updateField("precio_compra", e.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-                placeholder="22.55"
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <Info label="Stock actual" value={productoSeleccionado.stock} />
+              <Info
+                label="Compra con IVA"
+                value={money(resumenPrecio.precioCompraConIVA)}
               />
-              <p className="mt-1 text-xs text-gray-500">
-                Ingresa el valor tal como te lo cobra el proveedor.
-              </p>
+              <Info
+                label="Compra sin IVA"
+                value={money(resumenPrecio.precioCompraSinIVA)}
+              />
+              <Info label="Extras" value={money(resumenPrecio.descuentoExtras)} />
+              <Info label="Costo real" value={money(resumenPrecio.costoReal)} />
+              <Info
+                label="Venta con IVA"
+                value={money(resumenPrecio.precioVentaSugeridoConIVA)}
+              />
+              <Info
+                label="Ganancia unidad"
+                value={money(resumenPrecio.gananciaUnitaria)}
+              />
+              <Info
+                label="Margen"
+                value={`${resumenPrecio.margen.toFixed(2)}%`}
+              />
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 p-4">
-            <p className="mb-3 text-sm font-semibold text-gray-900">
-              Configuración actual del producto
-            </p>
-
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500">Stock actual</p>
-                <p className="text-sm font-semibold">
-                  {productoSeleccionado.stock}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500">Incluye filtro</p>
-                <p className="text-sm font-semibold">
-                  {productoSeleccionado.incluye_filtro ? "Sí" : "No"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500">Incluye ambiental</p>
-                <p className="text-sm font-semibold">
-                  {productoSeleccionado.incluye_ambiental ? "Sí" : "No"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs text-gray-500">Incluye tarjeta</p>
-                <p className="text-sm font-semibold">
-                  {productoSeleccionado.incluye_tarjeta ? "Sí" : "No"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-8">
-            <div>
-              <p className="text-xs text-gray-500">Compra con IVA</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.precioCompraConIVA.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Compra sin IVA</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.precioCompraSinIVA.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Descuento extras</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.descuentoExtras.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Costo real</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.costoReal.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Venta sugerida sin IVA</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.precioVentaSugeridoSinIVA.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Venta sugerida con IVA</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.precioVentaSugeridoConIVA.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Ganancia unitaria</p>
-              <p className="text-sm font-semibold">
-                ${resumenPrecio.gananciaUnitaria.toFixed(2)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">Margen</p>
-              <p className="text-sm font-semibold">
-                {resumenPrecio.margen.toFixed(2)}%
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <p className="text-sm font-medium text-gray-900">
-              Estado de rentabilidad
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {resumenPrecio.gananciaUnitaria < 0
-                ? "Pierdes dinero con este precio."
-                : resumenPrecio.gananciaUnitaria === 0
-                  ? "No tienes ganancia con este precio."
-                  : "La reposición mantiene ganancia positiva."}
-            </p>
-          </div>
+          </section>
         </>
-      ) : null}
+      ) : (
+        <section className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-500 shadow-sm">
+            <PackageSearch className="h-6 w-6" />
+          </div>
+          <p className="text-sm font-bold text-slate-700">
+            Selecciona un producto para continuar
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Después de seleccionarlo podrás ingresar cantidad, costo y revisar la
+            venta sugerida.
+          </p>
+        </section>
+      )}
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           {success}
         </div>
       ) : null}
 
-      <div>
-        <button
-          type="submit"
-          disabled={loading || !productoSeleccionado}
-          className="rounded-xl border border-yellow-300 bg-yellow-500 px-4 py-2 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Guardando..." : "Agregar stock"}
-        </button>
-      </div>
+      <button
+        type="submit"
+        disabled={loading || !productoSeleccionado}
+        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-lg shadow-slate-900/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Guardando...
+          </>
+        ) : (
+          <>
+            <PackagePlus className="h-4 w-4" />
+            Agregar stock
+          </>
+        )}
+      </button>
     </form>
+  );
+}
+
+function Info({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-black text-slate-900">{value ?? "-"}</p>
+    </div>
+  );
+}
+
+function InfoCard({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  tone: "yellow" | "blue" | "green" | "red" | "slate";
+}) {
+  const styles = {
+    yellow: "border-yellow-200 bg-yellow-50 text-yellow-800",
+    blue: "border-blue-200 bg-blue-50 text-blue-800",
+    green: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    red: "border-red-200 bg-red-50 text-red-800",
+    slate: "border-slate-200 bg-slate-50 text-slate-800",
+  };
+
+  return (
+    <div className={`rounded-3xl border p-4 ${styles[tone]}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide opacity-70">
+            {label}
+          </p>
+          <p className="mt-1 text-xl font-black">{value}</p>
+        </div>
+
+        <div className="rounded-2xl bg-white/70 p-3">{icon}</div>
+      </div>
+    </div>
   );
 }

@@ -99,6 +99,11 @@ type ProductoRentablePeriodoRow = {
   | null;
 };
 
+type ProductoCostoMovimientoRow = {
+  cantidad: number | null;
+  costo_unitario: number | null;
+};
+
 type ClienteInactivoRow = {
   id: string;
   nombres: string;
@@ -177,7 +182,10 @@ function normalizeRelation<T>(value: T | T[] | null | undefined): T | null {
 }
 
 function isNaturalezaOperativa(naturaleza?: string | null) {
-  return !naturaleza || naturaleza === "gasto_operativo";
+  return (
+    naturaleza === "gasto_operativo" ||
+    naturaleza === "ingreso_operativo"
+  );
 }
 
 function calcularPrestamoIngresado(movimientos: CajaMovimientoRow[]) {
@@ -186,6 +194,16 @@ function calcularPrestamoIngresado(movimientos: CajaMovimientoRow[]) {
     .reduce((acc, item) => acc + toNumber(item.monto), 0);
 }
 
+function calcularCostoProductosVendidos(
+  movimientos: ProductoCostoMovimientoRow[]
+) {
+  return sumBy(movimientos, (item) => {
+    const cantidad = toNumber(item.cantidad);
+    const costoUnitario = toNumber(item.costo_unitario);
+
+    return cantidad * costoUnitario;
+  });
+}
 
 export async function getDashboardTecnicoMetricas(
   tecnicoId: string
@@ -290,7 +308,8 @@ export async function getDashboardResumenDinero(
   const [
     cajaMovimientosPeriodoResponse,
     cajaMovimientosMesResponse,
-    todosMovimientosDineroResponse,
+    costosPeriodoResponse,
+    costosMesResponse,
   ] = await Promise.all([
     supabase
       .from("caja_movimientos")
@@ -305,8 +324,18 @@ export async function getDashboardResumenDinero(
       .lte("created_at", rangeMes.end),
 
     supabase
-      .from("caja_movimientos")
-      .select("tipo, monto, cuenta, origen_fondo, naturaleza, created_at"),
+      .from("producto_movimientos")
+      .select("cantidad, costo_unitario")
+      .eq("tipo", "salida")
+      .gte("created_at", rangePeriodo.start)
+      .lte("created_at", rangePeriodo.end),
+
+    supabase
+      .from("producto_movimientos")
+      .select("cantidad, costo_unitario")
+      .eq("tipo", "salida")
+      .gte("created_at", rangeMes.start)
+      .lte("created_at", rangeMes.end),
   ]);
 
   if (cajaMovimientosPeriodoResponse.error) {
@@ -325,12 +354,14 @@ export async function getDashboardResumenDinero(
     throw new Error("No se pudieron obtener los movimientos de caja del mes");
   }
 
-  if (todosMovimientosDineroResponse.error) {
-    console.error(
-      "Error movimientos globales de dinero:",
-      todosMovimientosDineroResponse.error
-    );
-    throw new Error("No se pudieron obtener los saldos reales de dinero");
+  if (costosPeriodoResponse.error) {
+    console.error("Error costos período:", costosPeriodoResponse.error);
+    throw new Error("No se pudieron obtener los costos del período");
+  }
+
+  if (costosMesResponse.error) {
+    console.error("Error costos mes:", costosMesResponse.error);
+    throw new Error("No se pudieron obtener los costos del mes");
   }
 
   const cajaMovimientosPeriodo = (cajaMovimientosPeriodoResponse.data ??
@@ -339,16 +370,51 @@ export async function getDashboardResumenDinero(
   const cajaMovimientosMes = (cajaMovimientosMesResponse.data ??
     []) as CajaMovimientoRow[];
 
-  const {
-    saldoCaja,
-    saldoBanco,
-    saldoDeuna,
-    saldoBoveda,
-    saldoTarjetaPorCobrar,
-    saldoTotalLiquido,
-  } = await getSaldosDineroActuales();
+  const costosPeriodoRows = (costosPeriodoResponse.data ??
+    []) as ProductoCostoMovimientoRow[];
 
-  const dineroPrestamoIngresado = calcularPrestamoIngresado(cajaMovimientosPeriodo);
+  const costosMesRows = (costosMesResponse.data ??
+    []) as ProductoCostoMovimientoRow[];
+
+  const saldosGlobales = await getSaldosDineroActuales();
+
+  const { data: cajaAbierta } = await supabase
+    .from("cajas")
+    .select("id")
+    .eq("estado", "abierta")
+    .order("fecha_apertura", { ascending: false })
+    .maybeSingle();
+
+  let saldoCaja = 0;
+
+  if (cajaAbierta?.id) {
+    const { data: movimientosCajaAbierta, error: movimientosCajaError } =
+      await supabase
+        .from("caja_movimientos")
+        .select("tipo, monto")
+        .eq("caja_id", cajaAbierta.id)
+        .eq("cuenta", "caja");
+
+    if (movimientosCajaError) {
+      console.error("Error saldo caja abierta:", movimientosCajaError);
+      throw new Error("No se pudo calcular la caja actual");
+    }
+
+    saldoCaja = sumBy(
+      (movimientosCajaAbierta ?? []) as { tipo: "ingreso" | "egreso"; monto: number | null }[],
+      (item) => item.tipo === "ingreso" ? toNumber(item.monto) : -toNumber(item.monto)
+    );
+  }
+
+  const saldoBanco = saldosGlobales.saldoBanco;
+  const saldoDeuna = saldosGlobales.saldoDeuna;
+  const saldoBoveda = saldosGlobales.saldoBoveda;
+  const saldoTarjetaPorCobrar = saldosGlobales.saldoTarjetaPorCobrar;
+  const saldoTotalLiquido =
+    saldoCaja + saldoBanco + saldoDeuna + saldoBoveda;
+
+  const dineroPrestamoIngresado =
+    calcularPrestamoIngresado(cajaMovimientosPeriodo);
 
   const dineroPrestamoUsado = sumBy(
     cajaMovimientosPeriodo.filter(
@@ -385,20 +451,26 @@ export async function getDashboardResumenDinero(
 
   const egresosOperativosPeriodo = sumBy(
     cajaMovimientosPeriodo.filter(
-      (item) => item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+      (item) => item.tipo === "egreso" && item.naturaleza === "gasto_operativo"
     ),
     (item) => toNumber(item.monto)
   );
 
   const egresosOperativosMes = sumBy(
     cajaMovimientosMes.filter(
-      (item) => item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+      (item) => item.tipo === "egreso" && item.naturaleza === "gasto_operativo"
     ),
     (item) => toNumber(item.monto)
   );
 
-  const utilidadRealPeriodo = cobrosOperativosPeriodo - egresosOperativosPeriodo;
-  const utilidadRealMes = cobrosOperativosMes - egresosOperativosMes;
+  const costosPeriodo = calcularCostoProductosVendidos(costosPeriodoRows);
+  const costosMes = calcularCostoProductosVendidos(costosMesRows);
+
+  const utilidadRealPeriodo =
+    cobrosOperativosPeriodo - costosPeriodo - egresosOperativosPeriodo;
+
+  const utilidadRealMes =
+    cobrosOperativosMes - costosMes - egresosOperativosMes;
 
   return {
     saldoCaja,
@@ -428,9 +500,10 @@ export async function getDashboardMetricas(
   const [
     ordenesAbiertasResponse,
     ordenesCerradasPeriodoResponse,
-    ordenesCerradasMesResponse,
     movimientosPeriodoResponse,
     movimientosMesResponse,
+    costosPeriodoResponse,
+    costosMesResponse,
   ] = await Promise.all([
     supabase
       .from("ordenes_trabajo")
@@ -445,13 +518,6 @@ export async function getDashboardMetricas(
       .lte("fecha", rangePeriodo.endDate),
 
     supabase
-      .from("ordenes_trabajo")
-      .select("id, total")
-      .in("estado", ["completada", "entregada"])
-      .gte("fecha", rangeMes.startDate)
-      .lte("fecha", rangeMes.endDate),
-
-    supabase
       .from("caja_movimientos")
       .select("tipo, monto, naturaleza, created_at")
       .gte("created_at", rangePeriodo.start)
@@ -460,6 +526,20 @@ export async function getDashboardMetricas(
     supabase
       .from("caja_movimientos")
       .select("tipo, monto, naturaleza, created_at")
+      .gte("created_at", rangeMes.start)
+      .lte("created_at", rangeMes.end),
+
+    supabase
+      .from("producto_movimientos")
+      .select("cantidad, costo_unitario")
+      .eq("tipo", "salida")
+      .gte("created_at", rangePeriodo.start)
+      .lte("created_at", rangePeriodo.end),
+
+    supabase
+      .from("producto_movimientos")
+      .select("cantidad, costo_unitario")
+      .eq("tipo", "salida")
       .gte("created_at", rangeMes.start)
       .lte("created_at", rangeMes.end),
   ]);
@@ -477,14 +557,6 @@ export async function getDashboardMetricas(
     throw new Error("No se pudieron obtener las órdenes cerradas del período");
   }
 
-  if (ordenesCerradasMesResponse.error) {
-    console.error(
-      "Error órdenes cerradas mes:",
-      ordenesCerradasMesResponse.error
-    );
-    throw new Error("No se pudieron obtener las órdenes cerradas del mes");
-  }
-
   if (movimientosPeriodoResponse.error) {
     console.error(
       "Error movimientos caja período:",
@@ -498,14 +570,35 @@ export async function getDashboardMetricas(
     throw new Error("No se pudieron obtener los movimientos de caja del mes");
   }
 
-  const ordenesAbiertas = ordenesAbiertasResponse.count ?? 0;
-  const ordenesCerradasPeriodoRows = (ordenesCerradasPeriodoResponse.data ?? []) as {
-    id: string;
-    total: number | null;
-  }[];
+  if (costosPeriodoResponse.error) {
+    console.error("Error costos período:", costosPeriodoResponse.error);
+    throw new Error("No se pudieron obtener los costos del período");
+  }
 
-  const movimientosPeriodo = (movimientosPeriodoResponse.data ?? []) as CajaMovimientoRow[];
-  const movimientosMes = (movimientosMesResponse.data ?? []) as CajaMovimientoRow[];
+  if (costosMesResponse.error) {
+    console.error("Error costos mes:", costosMesResponse.error);
+    throw new Error("No se pudieron obtener los costos del mes");
+  }
+
+  const ordenesAbiertas = ordenesAbiertasResponse.count ?? 0;
+
+  const ordenesCerradasPeriodoRows = (ordenesCerradasPeriodoResponse.data ??
+    []) as {
+      id: string;
+      total: number | null;
+    }[];
+
+  const movimientosPeriodo = (movimientosPeriodoResponse.data ??
+    []) as CajaMovimientoRow[];
+
+  const movimientosMes = (movimientosMesResponse.data ??
+    []) as CajaMovimientoRow[];
+
+  const costosPeriodoRows = (costosPeriodoResponse.data ??
+    []) as ProductoCostoMovimientoRow[];
+
+  const costosMesRows = (costosMesResponse.data ??
+    []) as ProductoCostoMovimientoRow[];
 
   const ingresosPeriodo = sumBy(
     movimientosPeriodo.filter(
@@ -523,24 +616,25 @@ export async function getDashboardMetricas(
     (item) => toNumber(item.monto)
   );
 
-  const egresosOperativosPeriodo = sumBy(
+  const gastosPeriodo = sumBy(
     movimientosPeriodo.filter(
-      (item) =>
-        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+      (item) => item.tipo === "egreso" && item.naturaleza === "gasto_operativo"
     ),
     (item) => toNumber(item.monto)
   );
 
-  const egresosOperativosMes = sumBy(
+  const gastosMes = sumBy(
     movimientosMes.filter(
-      (item) =>
-        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
+      (item) => item.tipo === "egreso" && item.naturaleza === "gasto_operativo"
     ),
     (item) => toNumber(item.monto)
   );
 
-  const utilidadPeriodo = ingresosPeriodo - egresosOperativosPeriodo;
-  const utilidadMes = ingresosMes - egresosOperativosMes;
+  const costosPeriodo = calcularCostoProductosVendidos(costosPeriodoRows);
+  const costosMes = calcularCostoProductosVendidos(costosMesRows);
+
+  const utilidadPeriodo = ingresosPeriodo - costosPeriodo - gastosPeriodo;
+  const utilidadMes = ingresosMes - costosMes - gastosMes;
 
   const margenPeriodo = calcMargen(ingresosPeriodo, utilidadPeriodo);
   const margenMes = calcMargen(ingresosMes, utilidadMes);
@@ -556,32 +650,25 @@ export async function getDashboardMetricas(
     ordenesCerradasPeriodo > 0
       ? totalOrdenesCerradasPeriodo / ordenesCerradasPeriodo
       : 0;
-  const puntoEquilibrioMes = sumBy(
-    movimientosMes.filter(
-      (item) =>
-        item.tipo === "egreso" && isNaturalezaOperativa(item.naturaleza)
-    ),
-    (item) => toNumber(item.monto)
-  );
 
   return {
     ordenes_abiertas: ordenesAbiertas,
 
     ventas_hoy: ingresosPeriodo,
-    costos_hoy: 0,
-    gastos_hoy: egresosOperativosPeriodo,
+    costos_hoy: costosPeriodo,
+    gastos_hoy: gastosPeriodo,
     utilidad_hoy: utilidadPeriodo,
     margen_hoy: margenPeriodo,
 
     ventas_mes: ingresosMes,
-    costos_mes: 0,
-    gastos_mes: egresosOperativosMes,
+    costos_mes: costosMes,
+    gastos_mes: gastosMes,
     utilidad_mes: utilidadMes,
     margen_mes: margenMes,
 
     ticket_promedio: ticketPromedio,
     ordenes_cerradas_periodo: ordenesCerradasPeriodo,
-    punto_equilibrio: puntoEquilibrioMes,
+    punto_equilibrio: gastosMes,
   };
 }
 
@@ -817,16 +904,19 @@ export async function getDashboardAlertas(
       tipo: "error",
       titulo: "Utilidad negativa en el período",
       descripcion:
-        "En el período seleccionado los egresos operativos superan los ingresos. Revisa cobros, gastos y salidas de dinero.",
+        "En el período seleccionado los costos y gastos superan los cobros. Revisa precios, costos, gastos y pagos registrados.",
     });
   }
 
-  if (Number(metricas.gastos_hoy) > Number(metricas.ventas_hoy)) {
+  if (
+    Number(metricas.costos_hoy) + Number(metricas.gastos_hoy) >
+    Number(metricas.ventas_hoy)
+  ) {
     alertas.push({
       tipo: "error",
-      titulo: "Egresos del período por encima de ingresos",
+      titulo: "Costos y gastos por encima de cobros",
       descripcion:
-        "Los egresos operativos registrados en el período seleccionado son mayores que los ingresos.",
+        "La suma de costos de productos y gastos operativos supera los cobros del período.",
     });
   }
 
@@ -883,19 +973,21 @@ export async function getDashboardAccionesSugeridas(
       tipo: "error",
       titulo: "Revisar utilidad negativa del período",
       descripcion:
-        "Reduce egresos operativos o revisa tus cobros, porque en el rango seleccionado salió más dinero del que entró.",
+        "Tus costos y gastos superan los cobros. Revisa precios, costos de productos y gastos operativos.",
     });
   }
 
   if (
     Number(metricas.ventas_hoy) > 0 &&
-    Number(metricas.gastos_hoy) / Number(metricas.ventas_hoy) > 0.5
+    (Number(metricas.costos_hoy) + Number(metricas.gastos_hoy)) /
+    Number(metricas.ventas_hoy) >
+    0.7
   ) {
     acciones.push({
       tipo: "warning",
-      titulo: "Controlar egresos del período",
+      titulo: "Costos y gastos muy altos",
       descripcion:
-        "Tus egresos operativos del período superan el 50% de los ingresos. Revisa pagos, gastos y salidas no urgentes.",
+        "Más del 70% de tus cobros se están yendo en costos y gastos. Revisa precios, compras y egresos.",
     });
   }
 
@@ -967,21 +1059,38 @@ export async function getDashboardSerieFinanciera(
     fechaActual.setDate(fechaActual.getDate() + 1);
   }
 
-  const { data, error } = await supabase
-    .from("caja_movimientos")
-    .select("created_at, tipo, monto, naturaleza")
-    .gte("created_at", range.start)
-    .lte("created_at", range.end);
+  const [movimientosResponse, costosResponse] = await Promise.all([
+    supabase
+      .from("caja_movimientos")
+      .select("created_at, tipo, monto, naturaleza")
+      .gte("created_at", range.start)
+      .lte("created_at", range.end),
 
-  if (error) {
+    supabase
+      .from("producto_movimientos")
+      .select("created_at, cantidad, costo_unitario")
+      .eq("tipo", "salida")
+      .gte("created_at", range.start)
+      .lte("created_at", range.end),
+  ]);
+
+  if (movimientosResponse.error) {
     console.error(
       "Error cargando serie financiera desde caja_movimientos:",
-      error.message
+      movimientosResponse.error.message
     );
     throw new Error("No se pudo cargar la serie financiera");
   }
 
-  const movimientos = (data ?? []) as CajaMovimientoRow[];
+  if (costosResponse.error) {
+    console.error("Error cargando costos de productos:", costosResponse.error);
+    throw new Error("No se pudieron cargar los costos de productos");
+  }
+
+  const movimientos = (movimientosResponse.data ?? []) as CajaMovimientoRow[];
+  const costosRows = (costosResponse.data ?? []) as (ProductoCostoMovimientoRow & {
+    created_at: string | null;
+  })[];
 
   const base = new Map<string, DashboardSerieFinanciera>();
 
@@ -1001,7 +1110,7 @@ export async function getDashboardSerieFinanciera(
 
     if (!actual) continue;
 
-    const monto = Number(item.monto ?? 0);
+    const monto = toNumber(item.monto);
 
     if (item.tipo === "ingreso" && item.naturaleza === "ingreso_operativo") {
       actual.ventas += monto;
@@ -1010,13 +1119,21 @@ export async function getDashboardSerieFinanciera(
 
     if (item.tipo === "egreso" && item.naturaleza === "gasto_operativo") {
       actual.gastos += monto;
-      actual.costos += monto;
       continue;
     }
   }
 
+  for (const item of costosRows) {
+    const fecha = String(item.created_at).split("T")[0];
+    const actual = base.get(fecha);
+
+    if (!actual) continue;
+
+    actual.costos += toNumber(item.cantidad) * toNumber(item.costo_unitario);
+  }
+
   for (const item of base.values()) {
-    item.utilidad = item.ventas - item.gastos;
+    item.utilidad = item.ventas - item.costos - item.gastos;
   }
 
   return Array.from(base.values());

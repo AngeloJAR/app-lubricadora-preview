@@ -20,7 +20,7 @@ export default async function MisOrdenesPage() {
     );
   }
 
-  const ordenes = await getOrdenesTecnico(user.id);
+  const ordenes = await getOrdenesTecnico();
 
   return (
     <AppShell title="Mis órdenes">

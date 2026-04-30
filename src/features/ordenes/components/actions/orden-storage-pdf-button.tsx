@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CloudUpload } from "lucide-react";
 
 type OrdenStoragePdfButtonProps = {
   ordenId: string;
@@ -28,13 +29,13 @@ export function OrdenStoragePdfButton({
       if (!response.ok) {
         throw new Error(result.error || "No se pudo guardar el PDF");
       }
-
-      window.alert("PDF guardado correctamente en Storage.");
+      
+      console.log("PDF guardado en:", result.pdfUrl);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo guardar el PDF.";
 
-      window.alert(message);
+      console.error(message);
     } finally {
       setLoading(false);
     }
@@ -45,9 +46,10 @@ export function OrdenStoragePdfButton({
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
     >
-      {loading ? "Guardando PDF..." : "Guardar PDF en Storage"}
+      <CloudUpload className="h-4 w-4" />
+      {loading ? "Guardando..." : "Guardar en Storage"}
     </button>
   );
 }

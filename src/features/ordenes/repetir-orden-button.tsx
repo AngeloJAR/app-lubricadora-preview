@@ -2,15 +2,14 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Repeat2 } from "lucide-react";
 import { repetirOrden } from "./actions";
 
 type RepetirOrdenButtonProps = {
   ordenId: string;
 };
 
-export function RepetirOrdenButton({
-  ordenId,
-}: RepetirOrdenButtonProps) {
+export function RepetirOrdenButton({ ordenId }: RepetirOrdenButtonProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -21,12 +20,9 @@ export function RepetirOrdenButton({
         router.push(`/ordenes/${nuevaOrden.id}`);
         router.refresh();
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "No se pudo repetir la orden.";
-
-        window.alert(message);
+        window.alert(
+          error instanceof Error ? error.message : "No se pudo repetir la orden."
+        );
       }
     });
   }
@@ -36,8 +32,9 @@ export function RepetirOrdenButton({
       type="button"
       onClick={handleClick}
       disabled={isPending}
-      className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-100 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
     >
+      <Repeat2 className="h-4 w-4" />
       {isPending ? "Repitiendo..." : "Repetir orden"}
     </button>
   );

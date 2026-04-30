@@ -1,3 +1,4 @@
+import { Building2, ShieldCheck } from "lucide-react";
 import { getConfiguracionTaller } from "@/features/configuracion/actions";
 import { createClient } from "@/lib/supabase/server";
 import { SidebarNav } from "./sidebar-nav";
@@ -33,14 +34,15 @@ const linksByRole: Record<"admin" | "recepcion" | "tecnico", SidebarLink[]> = {
     { href: "/gastos", label: "Gastos" },
     { href: "/pagos-empleados", label: "Pagos de empleados" },
     { href: "/cotizaciones", label: "Cotizaciones" },
-
+    { href: "/compras", label: "Compras" },
+    
     { label: "Crecimiento", type: "section" },
     { href: "/fidelizacion", label: "Fidelización" },
 
     { label: "Sistema", type: "section" },
     { href: "/usuarios", label: "Usuarios" },
     { href: "/configuracion", label: "Configuración" },
-    { href: "/compras", label: "Compras" },
+
   ],
   recepcion: [
     { label: "General", type: "section" },
@@ -80,6 +82,12 @@ type SidebarProps = {
   onNavigate?: () => void;
 };
 
+function getRolLabel(rol: keyof typeof linksByRole) {
+  if (rol === "admin") return "Administrador";
+  if (rol === "tecnico") return "Técnico";
+  return "Recepción";
+}
+
 export async function Sidebar({ onNavigate }: SidebarProps) {
   const supabase = await createClient();
 
@@ -113,11 +121,25 @@ export async function Sidebar({ onNavigate }: SidebarProps) {
   const nombreNegocio = configuracion?.nombre_negocio || "Taller CRM";
 
   return (
-    <aside className="flex h-full min-h-screen w-64 flex-col border-r border-gray-200 bg-white">
-      <div className="border-b border-gray-200 p-4">
-        <h2 className="text-xl font-bold">{nombreNegocio}</h2>
-        <p className="text-sm text-gray-500">Panel principal</p>
-        <p className="mt-1 text-xs uppercase text-gray-400">Rol: {rol}</p>
+    <aside className="flex h-full min-h-screen w-72 flex-col border-r border-slate-200 bg-white">
+      <div className="border-b border-slate-100 p-4">
+        <div className="flex items-center gap-3 rounded-3xl bg-slate-50 p-3 ring-1 ring-slate-100">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-yellow-100 text-yellow-700">
+            <Building2 className="h-5 w-5" />
+          </div>
+
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-bold tracking-tight text-slate-950">
+              {nombreNegocio}
+            </h2>
+            <p className="truncate text-sm text-slate-500">Panel principal</p>
+          </div>
+        </div>
+
+        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+          <ShieldCheck className="h-3.5 w-3.5 text-yellow-600" />
+          {getRolLabel(rol)}
+        </div>
       </div>
 
       <SidebarNav links={links} onNavigate={onNavigate} />

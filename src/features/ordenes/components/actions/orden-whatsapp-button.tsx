@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { MessageCircle } from "lucide-react";
 import type { OrdenDetalle } from "@/types";
 import { buildWhatsappUrlFromOrden } from "../../whatsapp";
 
@@ -30,16 +31,13 @@ export function OrdenWhatsappButton({ orden }: OrdenWhatsappButtonProps) {
         });
 
         const rawText = await response.text();
-        console.log("PDF upload raw response:", rawText);
 
         let result: PdfUploadResponse | null = null;
 
         try {
           result = JSON.parse(rawText) as PdfUploadResponse;
         } catch {
-          throw new Error(
-            "La ruta del PDF devolvió HTML o texto inválido. Revisa el error del servidor en /api/ordenes/[id]/pdf/upload."
-          );
+          throw new Error("Error generando PDF. Revisa el endpoint.");
         }
 
         if (!response.ok) {
@@ -47,21 +45,21 @@ export function OrdenWhatsappButton({ orden }: OrdenWhatsappButtonProps) {
         }
 
         if (!result.pdfUrl) {
-          throw new Error("La API no devolvió la URL del PDF");
+          throw new Error("No se obtuvo la URL del PDF");
         }
 
         pdfUrl = result.pdfUrl;
       }
 
       const url = await buildWhatsappUrlFromOrden(orden, pdfUrl);
-      window.location.href = url;
+      window.open(url, "_blank");
     } catch (error: unknown) {
       const message =
         error instanceof Error
           ? error.message
           : "No se pudo preparar el mensaje de WhatsApp.";
 
-      window.alert(message);
+      console.error(message);
     } finally {
       setLoading(false);
     }
@@ -72,9 +70,10 @@ export function OrdenWhatsappButton({ orden }: OrdenWhatsappButtonProps) {
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className="inline-flex items-center rounded-xl bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-green-300 hover:bg-green-100 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
     >
-      {loading ? "Preparando WhatsApp..." : "Enviar por WhatsApp"}
+      <MessageCircle className="h-4 w-4" />
+      {loading ? "Preparando..." : "Enviar por WhatsApp"}
     </button>
   );
 }

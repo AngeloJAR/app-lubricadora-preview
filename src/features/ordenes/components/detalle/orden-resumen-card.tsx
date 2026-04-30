@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CalendarDays, Clock, Gauge, Hash, StickyNote, Wrench } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { getEstadoClasses, getEstadoLabel } from "@/utils/orden-status";
 import type { OrdenDetalle } from "@/types";
@@ -14,6 +15,72 @@ type Props = {
   showTotal?: boolean;
   showKilometrajeFinal?: boolean;
 };
+
+function InfoBox({
+  icon,
+  label,
+  value,
+  strong = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: ReactNode;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-xl bg-white p-2 text-gray-500 shadow-sm">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            {label}
+          </p>
+          <div
+            className={`mt-1 break-words ${
+              strong
+                ? "text-lg font-bold text-gray-900"
+                : "text-sm font-semibold text-gray-900"
+            }`}
+          >
+            {value}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TextBlock({
+  icon,
+  title,
+  value,
+}: {
+  icon: ReactNode;
+  title: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-xl bg-white p-2 text-gray-500 shadow-sm">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            {title}
+          </p>
+          <p className="mt-1 whitespace-pre-line text-sm leading-6 text-gray-800">
+            {value}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function OrdenResumenCard({
   orden,
@@ -36,102 +103,90 @@ export function OrdenResumenCard({
   return (
     <Card right={rightContent}>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Número de orden
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            {orden.numero}
-          </p>
-        </div>
+        <InfoBox
+          icon={<Hash className="h-4 w-4" />}
+          label="Número de orden"
+          value={orden.numero}
+          strong
+        />
 
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Estado
-          </p>
-          <span
-            className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoClasses(
-              orden.estado
-            )}`}
-          >
-            {getEstadoLabel(orden.estado)}
-          </span>
-        </div>
+        <InfoBox
+          icon={<Wrench className="h-4 w-4" />}
+          label="Estado"
+          value={
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${getEstadoClasses(
+                orden.estado
+              )}`}
+            >
+              {getEstadoLabel(orden.estado)}
+            </span>
+          }
+        />
 
         {showTotal ? (
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Total
-            </p>
-            <p className="mt-1 text-sm font-semibold text-gray-900">
-              {formatMoney(orden.total && orden.total > 0 ? orden.total : totalFinal)}
-            </p>
-          </div>
+          <InfoBox
+            icon={<Hash className="h-4 w-4" />}
+            label="Total"
+            value={formatMoney(
+              orden.total && orden.total > 0 ? orden.total : totalFinal
+            )}
+            strong
+          />
         ) : null}
 
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Fecha
-          </p>
-          <p className="mt-1 text-sm text-gray-900">{formatFecha(orden.fecha)}</p>
-        </div>
+        <InfoBox
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Fecha"
+          value={formatFecha(orden.fecha)}
+        />
 
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Kilometraje ingreso
-          </p>
-          <p className="mt-1 text-sm text-gray-900">{orden.kilometraje ?? "-"}</p>
-        </div>
+        <InfoBox
+          icon={<Gauge className="h-4 w-4" />}
+          label="Kilometraje ingreso"
+          value={orden.kilometraje ?? "-"}
+        />
 
         {showKilometrajeFinal ? (
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Kilometraje final
-            </p>
-            <p className="mt-1 text-sm text-gray-900">
-              {orden.kilometraje_final ?? "-"}
-            </p>
-          </div>
+          <InfoBox
+            icon={<Gauge className="h-4 w-4" />}
+            label="Kilometraje final"
+            value={orden.kilometraje_final ?? "-"}
+          />
         ) : null}
 
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Hora inicio
-          </p>
-          <p className="mt-1 text-sm text-gray-900">
-            {formatFechaHora(orden.hora_inicio)}
-          </p>
-        </div>
+        <InfoBox
+          icon={<Clock className="h-4 w-4" />}
+          label="Hora inicio"
+          value={formatFechaHora(orden.hora_inicio)}
+        />
 
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Hora fin
-          </p>
-          <p className="mt-1 text-sm text-gray-900">
-            {formatFechaHora(orden.hora_fin)}
-          </p>
-        </div>
+        <InfoBox
+          icon={<Clock className="h-4 w-4" />}
+          label="Hora fin"
+          value={formatFechaHora(orden.hora_fin)}
+        />
       </div>
 
-      {orden.notas ? (
-        <div className="mt-5 rounded-xl bg-gray-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Notas
-          </p>
-          <p className="mt-1 text-sm text-gray-800">{orden.notas}</p>
-        </div>
-      ) : null}
+      {(orden.notas || orden.observaciones_tecnicas) && (
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {orden.notas ? (
+            <TextBlock
+              icon={<StickyNote className="h-4 w-4" />}
+              title="Notas"
+              value={orden.notas}
+            />
+          ) : null}
 
-      {orden.observaciones_tecnicas ? (
-        <div className="mt-4 rounded-xl bg-gray-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Observaciones técnicas
-          </p>
-          <p className="mt-1 text-sm text-gray-800">
-            {orden.observaciones_tecnicas}
-          </p>
+          {orden.observaciones_tecnicas ? (
+            <TextBlock
+              icon={<Wrench className="h-4 w-4" />}
+              title="Observaciones técnicas"
+              value={orden.observaciones_tecnicas}
+            />
+          ) : null}
         </div>
-      ) : null}
+      )}
     </Card>
   );
 }

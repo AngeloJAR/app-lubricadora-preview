@@ -16,6 +16,23 @@ import {
   transferirEntreCuentas,
 } from "@/features/caja/actions";
 
+import {
+  ArrowRightLeft,
+  Banknote,
+  Landmark,
+  LockKeyhole,
+  PiggyBank,
+  PlusCircle,
+  ReceiptText,
+  ShieldCheck,
+  TrendingDown,
+  TrendingUp,
+  Vault,
+  Wallet,
+  XCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+
 function formatCurrency(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
@@ -111,55 +128,44 @@ function ResumenCard({
   value,
   subtitle,
   tone = "default",
+  icon: Icon = Wallet,
 }: {
   title: string;
   value: string;
   subtitle: string;
   tone?: "default" | "green" | "red" | "blue";
+  icon?: typeof Wallet;
 }) {
   const toneClasses = {
-    default: "border-gray-200 bg-white",
-    green: "border-green-200 bg-green-50",
-    red: "border-red-200 bg-red-50",
-    blue: "border-blue-200 bg-blue-50",
-  };
-
-  const titleClasses = {
-    default: "text-gray-500",
-    green: "text-green-700",
-    red: "text-red-700",
-    blue: "text-blue-700",
-  };
-
-  const valueClasses = {
-    default: "text-gray-900",
-    green: "text-green-900",
-    red: "text-red-900",
-    blue: "text-blue-900",
-  };
-
-  const subtitleClasses = {
-    default: "text-gray-500",
-    green: "text-green-700/80",
-    red: "text-red-700/80",
-    blue: "text-blue-700/80",
+    default: "border-slate-200 bg-white text-slate-700",
+    green: "border-green-200 bg-green-50 text-green-700",
+    red: "border-red-200 bg-red-50 text-red-700",
+    blue: "border-blue-200 bg-blue-50 text-blue-700",
   };
 
   return (
     <section
-      className={`rounded-2xl border p-4 shadow-sm sm:rounded-3xl sm:p-5 ${toneClasses[tone]}`}
+      className={`rounded-3xl border p-5 shadow-sm transition hover:shadow-md ${toneClasses[tone]}`}
     >
-      <p className={`text-xs font-semibold uppercase tracking-[0.12em] sm:text-sm ${titleClasses[tone]}`}>
-        {title}
-      </p>
-      <p className={`mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl ${valueClasses[tone]}`}>
-        {value}
-      </p>
-      <p className={`mt-2 text-xs sm:text-sm ${subtitleClasses[tone]}`}>{subtitle}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-80">
+            {title}
+          </p>
+          <p className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
+            {value}
+          </p>
+        </div>
+
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 shadow-sm">
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm opacity-80">{subtitle}</p>
     </section>
   );
 }
-
 export default async function CajaPage() {
   await requireCajaPageAccess();
 
@@ -247,10 +253,25 @@ export default async function CajaPage() {
     revalidatePath("/caja");
   }
 
+  const sectionClass =
+    "rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
+
+  const inputClass =
+    "min-h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-yellow-400 focus:bg-white focus:ring-4 focus:ring-yellow-100";
+
+  const selectClass =
+    "min-h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-yellow-400 focus:bg-white focus:ring-4 focus:ring-yellow-100";
+
+  const labelClass = "text-sm font-semibold text-slate-700";
+
+  const titleClass = "text-base font-bold tracking-tight text-slate-950 sm:text-lg";
+
+  const descriptionClass = "mt-1 text-sm leading-6 text-slate-500";
+
   return (
     <AppShell title="Caja">
       <div className="grid gap-4 sm:gap-6">
-        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
+        <section className={sectionClass}>
           <div className="flex flex-col gap-2 sm:gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 sm:text-xs">
@@ -259,7 +280,7 @@ export default async function CajaPage() {
               <h2 className="mt-1 text-xl font-semibold text-gray-900 sm:text-2xl">
                 Apertura, movimientos y cierre de caja
               </h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className={descriptionClass}>
                 Registra ingresos, egresos y valida el efectivo esperado al final del día.
               </p>
             </div>
@@ -268,8 +289,8 @@ export default async function CajaPage() {
 
         {!cajaAbierta ? (
           <section className="rounded-2xl border border-green-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-            <h3 className="text-base font-semibold text-gray-900 sm:text-lg">Abrir caja</h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <h3 className={titleClass}>Abrir caja</h3>
+            <p className={descriptionClass}>
               Inicia la caja del día con efectivo tomado desde bóveda.
             </p>
             <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
@@ -283,7 +304,7 @@ export default async function CajaPage() {
             </div>
             <form action={handleAbrirCaja} className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label className={labelClass}>
                   Monto de apertura
                 </label>
                 <input
@@ -292,19 +313,19 @@ export default async function CajaPage() {
                   step="0.01"
                   min="0"
                   required
-                  className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                  className={inputClass}
                   placeholder="20"
                 />
               </div>
 
               <div className="grid gap-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label className={labelClass}>
                   Observaciones
                 </label>
                 <input
                   name="observaciones"
                   type="text"
-                  className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                  className={inputClass}
                   placeholder="Caja inicial del día"
                 />
               </div>
@@ -326,36 +347,47 @@ export default async function CajaPage() {
                 title="Apertura"
                 value={formatCurrency(cajaAbierta.monto_apertura)}
                 subtitle={formatDateTime(cajaAbierta.fecha_apertura)}
+                icon={PlusCircle}
               />
+
               <ResumenCard
                 title="Ingresos"
                 value={formatCurrency(resumenActual?.ingresos)}
                 subtitle="Total de entradas registradas."
                 tone="green"
+                icon={TrendingUp}
               />
+
               <ResumenCard
                 title="Egresos"
                 value={formatCurrency(resumenActual?.egresos)}
                 subtitle="Total de salidas registradas."
                 tone="red"
+                icon={TrendingDown}
               />
+
               <ResumenCard
                 title="Esperado"
                 value={formatCurrency(resumenActual?.esperado)}
                 subtitle="Efectivo esperado en caja."
                 tone="blue"
+                icon={Wallet}
               />
+
               <ResumenCard
                 title="Bóveda"
                 value={formatCurrency(resumenBoveda?.saldo)}
                 subtitle="Saldo actual guardado en bóveda."
                 tone="blue"
+                icon={Vault}
               />
+
               <ResumenCard
                 title="Caja actual"
                 value={formatCurrency(resumenActual?.esperado)}
                 subtitle="Efectivo real de la caja abierta."
                 tone="blue"
+                icon={Banknote}
               />
 
               <ResumenCard
@@ -363,6 +395,7 @@ export default async function CajaPage() {
                 value={formatCurrency(saldosActuales.saldoBanco)}
                 subtitle="Disponible actual en banco."
                 tone="blue"
+                icon={Landmark}
               />
 
               <ResumenCard
@@ -370,22 +403,23 @@ export default async function CajaPage() {
                 value={formatCurrency(saldosActuales.saldoDeuna)}
                 subtitle="Disponible actual en Deuna."
                 tone="blue"
+                icon={PiggyBank}
               />
 
               <ResumenCard
                 title="Tarjeta por cobrar"
                 value={formatCurrency(saldosActuales.saldoTarjetaPorCobrar)}
                 subtitle="Cobros pendientes por tarjeta."
-                tone="default"
+                icon={ReceiptText}
               />
             </div>
 
             <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
               <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-                <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+                <h3 className={titleClass}>
                   Registrar movimiento
                 </h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className={descriptionClass}>
                   Usa este formulario solo para ingresos o egresos manuales reales. Las transferencias internas entre cuentas se registran aparte.
                 </p>
 
@@ -396,13 +430,13 @@ export default async function CajaPage() {
 
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Cuenta
                     </label>
                     <select
                       name="cuenta"
                       defaultValue="caja"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                      className={selectClass}
                     >
                       <option value="caja">Caja</option>
                       <option value="banco">Banco</option>
@@ -413,13 +447,13 @@ export default async function CajaPage() {
 
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Origen del dinero
                     </label>
                     <select
                       name="origen_fondo"
                       defaultValue="negocio"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                      className={selectClass}
                     >
                       <option value="negocio">Negocio</option>
                       <option value="prestamo">Préstamo</option>
@@ -429,13 +463,13 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2 md:col-span-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Naturaleza
                     </label>
                     <select
                       name="naturaleza"
                       defaultValue="gasto_operativo"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                      className={selectClass}
                     >
                       <option value="ingreso_operativo">Ingreso operativo</option>
                       <option value="gasto_operativo">Gasto operativo</option>
@@ -448,13 +482,13 @@ export default async function CajaPage() {
 
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Tipo
                     </label>
                     <select
                       name="tipo"
                       defaultValue="ingreso"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={selectClass}
                     >
                       <option value="ingreso">Ingreso</option>
                       <option value="egreso">Egreso</option>
@@ -462,13 +496,13 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Categoría
                     </label>
                     <select
                       name="categoria"
                       defaultValue="ingreso_manual"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={selectClass}
                     >
                       <option value="orden">Orden</option>
                       <option value="gasto">Gasto</option>
@@ -480,7 +514,7 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Monto
                     </label>
                     <input
@@ -489,19 +523,19 @@ export default async function CajaPage() {
                       step="0.01"
                       min="0.01"
                       required
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="10"
                     />
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Método de pago
                     </label>
                     <select
                       name="metodo_pago"
                       defaultValue="efectivo"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={selectClass}
                     >
                       <option value="efectivo">Efectivo</option>
                       <option value="transferencia">Transferencia</option>
@@ -512,13 +546,13 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2 md:col-span-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Descripción
                     </label>
                     <input
                       name="descripcion"
                       type="text"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="Ej: compra de limpieza"
                     />
                   </div>
@@ -534,10 +568,10 @@ export default async function CajaPage() {
                 </form>
               </section>
               <section className="rounded-2xl border border-blue-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-                <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+                <h3 className={titleClass}>
                   Transferencia entre cuentas
                 </h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className={descriptionClass}>
                   Usa esta sección para mover dinero entre caja, bóveda, banco o Deuna. Esto no es ingreso ni gasto real.
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -579,13 +613,13 @@ export default async function CajaPage() {
                 </div>
                 <form action={handleTransferirEntreCuentas} className="mt-4 grid gap-4 md:grid-cols-2">
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Cuenta origen
                     </label>
                     <select
                       name="cuenta_origen_transferencia"
                       defaultValue="caja"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                      className={selectClass}
                     >
                       <option value="caja">Caja</option>
                       <option value="boveda">Bóveda</option>
@@ -595,13 +629,13 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Cuenta destino
                     </label>
                     <select
                       name="cuenta_destino_transferencia"
                       defaultValue="boveda"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm"
+                      className={selectClass}
                     >
                       <option value="caja">Caja</option>
                       <option value="boveda">Bóveda</option>
@@ -620,7 +654,7 @@ export default async function CajaPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Monto a transferir
                     </label>
                     <input
@@ -629,19 +663,19 @@ export default async function CajaPage() {
                       step="0.01"
                       min="0.01"
                       required
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="10"
                     />
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Descripción
                     </label>
                     <input
                       name="descripcion_transferencia"
                       type="text"
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="Ej: envío a bóveda o depósito a banco"
                     />
                   </div>
@@ -657,10 +691,10 @@ export default async function CajaPage() {
                 </form>
               </section>
               <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-                <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+                <h3 className={titleClass}>
                   Cerrar caja
                 </h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className={descriptionClass}>
                   Registra el efectivo real contado. Ese monto se enviará automáticamente a bóveda y la diferencia quedará registrada.
                 </p>
                 <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
@@ -673,18 +707,18 @@ export default async function CajaPage() {
                 </div>
                 <form action={handleCerrarCaja} className="mt-4 grid gap-4">
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Monto esperado
                     </label>
                     <input
                       value={formatCurrency(resumenActual?.esperado)}
                       readOnly
-                      className="min-h-11 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 outline-none"
+                      className={inputClass}
                     />
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Monto real en caja
                     </label>
                     <input
@@ -693,19 +727,19 @@ export default async function CajaPage() {
                       step="0.01"
                       min="0"
                       required
-                      className="min-h-11 rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="0"
                     />
                   </div>
 
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className={labelClass}>
                       Observaciones de cierre
                     </label>
                     <textarea
                       name="observaciones_cierre"
                       rows={4}
-                      className="rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+                      className={inputClass}
                       placeholder="Observaciones del cierre"
                     />
                   </div>
@@ -721,10 +755,10 @@ export default async function CajaPage() {
             </div>
 
             <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-              <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+              <h3 className={titleClass}>
                 Movimientos de la caja actual
               </h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className={descriptionClass}>
                 Últimos movimientos registrados en esta caja.
               </p>
 
@@ -870,10 +904,10 @@ export default async function CajaPage() {
         )}
 
         <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-5">
-          <h3 className="text-base font-semibold text-gray-900 sm:text-lg">
+          <h3 className={titleClass}>
             Cajas recientes
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className={descriptionClass}>
             Historial de aperturas y cierres de caja.
           </p>
 

@@ -10,8 +10,13 @@ export function toNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
+
 export function toMoney(value: unknown): number {
   return Math.round(toNumber(value) * 100) / 100;
+}
+
+function assertNeverValue(value: unknown, label: string): never {
+  throw new Error(`${label} inválido: ${String(value ?? "vacío")}`);
 }
 
 export function normalizeMetodoPago(value?: string | null): MetodoPago {
@@ -25,7 +30,7 @@ export function normalizeMetodoPago(value?: string | null): MetodoPago {
     return value;
   }
 
-  return "efectivo";
+  return assertNeverValue(value, "Método de pago");
 }
 
 export function resolveCuentaDesdeMetodoPago(
@@ -40,8 +45,10 @@ export function resolveCuentaDesdeMetodoPago(
       return "deuna";
     case "tarjeta":
       return "tarjeta_por_cobrar";
-    default:
+    case "mixto":
       return "banco";
+    default:
+      return assertNeverValue(metodo, "Método de pago");
   }
 }
 
@@ -56,7 +63,7 @@ export function normalizeCuentaDinero(value?: string | null): CuentaDinero {
     return value;
   }
 
-  return "caja";
+  return assertNeverValue(value, "Cuenta de dinero");
 }
 
 export function normalizeOrigenFondo(value?: string | null): OrigenFondo {
@@ -69,7 +76,7 @@ export function normalizeOrigenFondo(value?: string | null): OrigenFondo {
     return value;
   }
 
-  return "negocio";
+  return assertNeverValue(value, "Origen de fondo");
 }
 
 export function normalizeNaturalezaMovimiento(
@@ -87,7 +94,7 @@ export function normalizeNaturalezaMovimiento(
     return value;
   }
 
-  return "gasto_operativo";
+  return assertNeverValue(value, "Naturaleza del movimiento");
 }
 
 export function calcularEstadoPago(
@@ -98,8 +105,8 @@ export function calcularEstadoPago(
   const safePagado = Math.max(0, toMoney(totalPagado));
 
   if (safePagado <= 0) return "pendiente";
-  if (safePagado >= safeTotal) return "pagado";
-  return "parcial";
+  if (safePagado >= safeTotal) return "pagada";
+  return "abonada";
 }
 
 export function calcularSaldoPendiente(
@@ -109,9 +116,7 @@ export function calcularSaldoPendiente(
   return toMoney(Math.max(0, toMoney(total) - toMoney(totalPagado)));
 }
 
-export function esNaturalezaOperativa(
-  naturaleza?: string | null
-): boolean {
+export function esNaturalezaOperativa(naturaleza?: string | null): boolean {
   const value = normalizeNaturalezaMovimiento(naturaleza);
 
   return value === "gasto_operativo" || value === "ingreso_operativo";

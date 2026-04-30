@@ -1,4 +1,5 @@
 import type { Cliente, Vehiculo } from "@/types";
+import { User, CarFront } from "lucide-react";
 
 type Props = {
   clienteId: string;
@@ -21,12 +22,19 @@ export function OrdenEditClienteVehiculoSection({
 }: Props) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <div>
-        <label className="mb-1 block text-sm font-medium">Cliente</label>
+      {/* CLIENTE */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <User className="h-4 w-4 text-gray-500" />
+          <label className="text-sm font-semibold text-gray-700">
+            Cliente
+          </label>
+        </div>
+
         <select
           value={clienteId}
           onChange={(e) => onClienteChange(e.target.value)}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-400 focus:bg-white"
           disabled={loadingData}
         >
           <option value="">Selecciona un cliente</option>
@@ -38,13 +46,20 @@ export function OrdenEditClienteVehiculoSection({
         </select>
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Vehículo</label>
+      {/* VEHICULO */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <CarFront className="h-4 w-4 text-gray-500" />
+          <label className="text-sm font-semibold text-gray-700">
+            Vehículo
+          </label>
+        </div>
+
         <select
           value={vehiculoId}
           onChange={(e) => onVehiculoChange(e.target.value)}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-          disabled={!clienteId}
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!clienteId || loadingData}
         >
           <option value="">Selecciona un vehículo</option>
           {vehiculos.map((vehiculo) => (

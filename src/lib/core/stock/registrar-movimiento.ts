@@ -24,7 +24,7 @@ export async function registrarMovimientoStock(params: {
 
   const { data: producto, error: productoError } = await supabase
     .from("productos")
-    .select("id, stock")
+    .select("id, stock, precio_compra, costo_real, precio_venta")
     .eq("id", producto_id)
     .single();
 
@@ -49,22 +49,35 @@ export async function registrarMovimientoStock(params: {
     throw new Error("No se pudo actualizar el stock del producto.");
   }
 
+  const costoUnitario = Number(
+    producto.costo_real ?? producto.precio_compra ?? 0
+  );
+
+  const precioUnitario = Number(producto.precio_venta ?? 0);
+
   const { error: movimientoError } = await supabase
     .from("producto_movimientos")
     .insert({
       producto_id,
       tipo,
       cantidad: movimiento.cantidad,
-      costo_unitario: 0,
-      precio_unitario: 0,
-      total: 0,
+      costo_unitario: costoUnitario,
+      precio_unitario: precioUnitario,
+      total: movimiento.cantidad * costoUnitario,
       referencia_tipo,
       referencia_id,
       motivo,
     });
 
   if (movimientoError) {
-    throw new Error("No se pudo registrar el movimiento de stock.");
+    await supabase
+      .from("productos")
+      .update({
+        stock: Number(producto.stock ?? 0),
+      })
+      .eq("id", producto_id);
+
+    throw new Error("No se pudo registrar el movimiento de stock. El stock fue revertido.");
   }
 
   return movimiento;

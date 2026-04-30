@@ -6,12 +6,7 @@ import { registrarAuditoriaLog } from "@/lib/core/auditoria/logs";
 import { calcularPuntosOrden } from "@/features/clientes/fidelizacion-utils";
 import { registrarPuntosCliente } from "@/features/clientes/fidelizacion-actions";
 import type { OrdenTrabajo, OrdenItem } from "@/types";
-
-import {
-  procesarSalidaStockPorOrden,
-  procesarEntradaStockPorCancelacion,
-} from "@/features/ordenes/domain/orden-stock.service";
-
+import { registrarMovimientoStock } from "@/lib/core/stock/registrar-movimiento";
 
 export async function updateOrdenEstado(
   ordenId: string,
@@ -58,43 +53,6 @@ export async function updateOrdenEstado(
     throw new Error(validacionTransicion.errores.join(" | "));
   }
 
-  const { data: itemsOrden, error: itemsError } = await supabase
-    .from("orden_items")
-    .select("tipo_item, producto_id, nombre_item, cantidad, precio_unitario")
-    .eq("orden_id", ordenId);
-
-  if (itemsError) {
-    throw new Error("No se pudieron obtener los items de la orden");
-  }
-
-  const items = itemsOrden ?? [];
-
-  const stockYaDescontado =
-    ordenAntes.estado === "completada" || ordenAntes.estado === "entregada";
-
-  const stockDebeDescontarseAhora =
-    (estado === "completada" || estado === "entregada") && !stockYaDescontado;
-
-  const stockDebeDevolverseAhora =
-    stockYaDescontado &&
-    (estado === "pendiente" || estado === "en_proceso" || estado === "cancelada");
-
-  if (stockDebeDescontarseAhora) {
-    await procesarSalidaStockPorOrden({
-      supabase,
-      ordenId,
-      items,
-    });
-  }
-
-  if (stockDebeDevolverseAhora) {
-    await procesarEntradaStockPorCancelacion({
-      supabase,
-      ordenId,
-      items,
-    });
-  }
-
   const payloadUpdate: Partial<OrdenTrabajo> = {
     estado,
   };
@@ -124,7 +82,47 @@ export async function updateOrdenEstado(
   if (error) {
     throw new Error("No se pudo actualizar el estado de la orden");
   }
+  const debeDevolverStockPorCancelacion =
+    estado === "cancelada" && ordenAntes.estado !== "cancelada";
 
+  if (debeDevolverStockPorCancelacion) {
+    const { data: movimientosDevolucionExistentes, error: movimientosError } =
+      await supabase
+        .from("producto_movimientos")
+        .select("id")
+        .eq("referencia_tipo", "orden_cancelada")
+        .eq("referencia_id", ordenId)
+        .limit(1);
+
+    if (movimientosError) {
+      throw new Error("No se pudo validar si la orden ya devolvió stock");
+    }
+
+    if ((movimientosDevolucionExistentes ?? []).length === 0) {
+      const { data: itemsOrden, error: itemsError } = await supabase
+        .from("orden_items")
+        .select("producto_id, cantidad, tipo_item")
+        .eq("orden_id", ordenId);
+
+      if (itemsError) {
+        throw new Error("No se pudieron obtener los productos de la orden");
+      }
+
+      for (const item of itemsOrden ?? []) {
+        if (item.tipo_item === "producto" && item.producto_id) {
+          await registrarMovimientoStock({
+            supabase,
+            producto_id: item.producto_id,
+            tipo: "entrada",
+            cantidad: Number(item.cantidad),
+            motivo: "cancelacion_orden",
+            referencia_tipo: "orden_cancelada",
+            referencia_id: ordenId,
+          });
+        }
+      }
+    }
+  }
   try {
     await registrarAuditoriaLog({
       supabase,
@@ -155,7 +153,12 @@ export async function updateOrdenEstado(
         .maybeSingle();
 
       if (!movimientoExistente) {
-        const puntos = calcularPuntosOrden((itemsOrden ?? []) as OrdenItem[]);
+        const { data: itemsParaPuntos } = await supabase
+          .from("orden_items")
+          .select("*")
+          .eq("orden_id", ordenId);
+
+        const puntos = calcularPuntosOrden((itemsParaPuntos ?? []) as OrdenItem[]);
 
         if (puntos > 0) {
           await registrarPuntosCliente({

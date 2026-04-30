@@ -42,12 +42,13 @@ export function registrarAuditoriaLog(input: AuditoriaLogInput) {
         created_at: new Date().toISOString(),
       },
     ])
-    .then(({ error }) => {
+    .then((result: { error: { message: string } | null }) => {
+      const { error } = result;
       if (error) {
         console.error("Error registrando auditoría:", error.message);
       }
     })
-    .catch((err) => {
+    .catch((err: unknown) => {
       console.error("Error inesperado en auditoría:", err);
     });
 }

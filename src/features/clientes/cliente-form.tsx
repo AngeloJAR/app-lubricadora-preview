@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Loader2, Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { createCliente } from "./actions";
 import type { ClienteFormData } from "@/types";
 
@@ -15,10 +17,14 @@ const initialState: ClienteFormData = {
   acepta_promociones: false,
 };
 
-
 type ClienteFormProps = {
   onCreated?: () => Promise<void> | void;
 };
+
+const inputClass =
+  "w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-yellow-400 focus:bg-white focus:ring-4 focus:ring-yellow-100";
+
+const labelClass = "mb-1.5 block text-sm font-semibold text-slate-700";
 
 export function ClienteForm({ onCreated }: ClienteFormProps) {
   const [form, setForm] = useState<ClienteFormData>(initialState);
@@ -61,52 +67,47 @@ export function ClienteForm({ onCreated }: ClienteFormProps) {
       await createCliente(form);
       setSuccess("Cliente creado correctamente.");
       setForm(initialState);
-
-      if (onCreated) {
-        await onCreated();
-      }
+      await onCreated?.();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Ocurrió un error inesperado.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Ocurrió un error inesperado.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-  const telefono = localStorage.getItem("nuevo_cliente_telefono");
+    const telefono = localStorage.getItem("nuevo_cliente_telefono");
 
-  if (telefono) {
-    setForm((prev) => ({
-      ...prev,
-      telefono,
-      whatsapp: telefono,
-    }));
+    if (telefono) {
+      setForm((prev) => ({
+        ...prev,
+        telefono,
+        whatsapp: telefono,
+      }));
 
-    localStorage.removeItem("nuevo_cliente_telefono");
-  }
-}, []);
+      localStorage.removeItem("nuevo_cliente_telefono");
+    }
+  }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
+    <form onSubmit={handleSubmit} className="grid gap-5">
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium">Nombres</label>
+          <label className={labelClass}>Nombres</label>
           <input
             value={form.nombres}
             onChange={(e) => updateField("nombres", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="Ángelo"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium">Apellidos</label>
+          <label className={labelClass}>Apellidos</label>
           <input
             value={form.apellidos}
             onChange={(e) => updateField("apellidos", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="Andino"
           />
         </div>
@@ -114,21 +115,21 @@ export function ClienteForm({ onCreated }: ClienteFormProps) {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium">Teléfono</label>
+          <label className={labelClass}>Teléfono</label>
           <input
             value={form.telefono}
             onChange={(e) => updateField("telefono", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="0999999999"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium">WhatsApp</label>
+          <label className={labelClass}>WhatsApp</label>
           <input
             value={form.whatsapp}
             onChange={(e) => updateField("whatsapp", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="0999999999"
           />
         </div>
@@ -136,68 +137,75 @@ export function ClienteForm({ onCreated }: ClienteFormProps) {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium">Correo</label>
+          <label className={labelClass}>Correo</label>
           <input
             type="email"
             value={form.email}
             onChange={(e) => updateField("email", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="cliente@email.com"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium">Cédula / RUC</label>
+          <label className={labelClass}>Cédula / RUC</label>
           <input
             value={form.cedula_ruc}
             onChange={(e) => updateField("cedula_ruc", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            className={inputClass}
             placeholder="1234567890"
           />
         </div>
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium">Notas</label>
+        <label className={labelClass}>Notas</label>
         <textarea
           value={form.notas}
           onChange={(e) => updateField("notas", e.target.value)}
-          className="min-h-25 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+          className={`${inputClass} min-h-28 resize-none`}
           placeholder="Observaciones del cliente..."
         />
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
         <input
           type="checkbox"
           checked={form.acepta_promociones}
-          onChange={(e) =>
-            updateField("acepta_promociones", e.target.checked)
-          }
+          onChange={(e) => updateField("acepta_promociones", e.target.checked)}
+          className="h-4 w-4 accent-yellow-500"
         />
         Acepta promociones y recordatorios
       </label>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          <AlertCircle className="h-4 w-4" />
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+          <CheckCircle2 className="h-4 w-4" />
           {success}
         </div>
       ) : null}
 
       <div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-xl bg-yellow-500 border border-yellow-300 text-white px-4 py-2 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Guardando..." : "Guardar cliente"}
-        </button>
+        <Button type="submit" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Guardando
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              Guardar cliente
+            </>
+          )}
+        </Button>
       </div>
     </form>
   );

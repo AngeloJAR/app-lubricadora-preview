@@ -419,8 +419,13 @@ export type Producto = {
   costo_tarjeta: number;
 
   costo_real: number;
-};
 
+  producto_aplicaciones_vehiculo?: {
+    vehiculo_marca: string | null;
+    vehiculo_modelo: string | null;
+    vehiculo_motor: string | null;
+  }[];
+};
 export type ProductoFormData = {
   nombre: string;
   categoria: string;
@@ -889,7 +894,8 @@ export type CajaMovimientoCategoria =
   | "ingreso_manual"
   | "egreso_manual"
   | "retiro"
-  | "ajuste";
+  | "ajuste"
+  | "transferencia_interna";
 
 export type MetodoPago =
   | "efectivo"
@@ -898,7 +904,7 @@ export type MetodoPago =
   | "tarjeta"
   | "mixto";
 
-  
+
 export type CajaMovimiento = {
   id: string;
   caja_id: string;

@@ -6,6 +6,7 @@ import {
   createOrden,
   createPreOrdenTecnico,
   getClientesForOrden,
+  buscarClientesForOrden,
   getProductosActivos,
   getProductosUltimaOrdenVehiculo,
   getServiciosActivos,
@@ -21,10 +22,6 @@ import {
 } from "@/features/ordenes/domain/orden-form-calculos";
 
 import {
-  buildServicioItem,
-  isEmptyInitialItem,
-  hasProductoEnItems,
-  hasServicioEnItems,
   buildInitialItemSearches,
 } from "@/features/ordenes/domain/orden-form-items";
 
@@ -48,13 +45,6 @@ import { OrdenMensajesSection } from "@/features/ordenes/components/orden-mensaj
 
 import { OrdenItemsSection } from "@/features/ordenes/components/orden-items-section";
 
-
-import {
-  OrdenEditClienteVehiculoSection,
-  OrdenEditMantenimientoSection,
-  OrdenEditTecnicosSection,
-} from "./components/edit";
-
 import {
   buildOrdenFormToSubmit,
   validateOrdenFormBase,
@@ -76,15 +66,12 @@ import {
 } from "./domain/orden-form-quick-actions";
 
 import {
-  formatCurrency,
   formatFechaCorta,
-  getProductosSugeridosPorServicio,
   normalizeText,
   uniqueServiciosById,
 } from "./domain/orden-form-helpers";
 
 import type {
-  ProductoRecordadoVehiculo,
   ProductosRecordadosVehiculoState,
   ServicioSugerido,
   TecnicoOption,
@@ -132,9 +119,11 @@ export function OrdenForm({
 }: OrdenFormProps) {
   const searchParams = useSearchParams();
 
-  
+
   const [form, setForm] = useState<OrdenFormData>(initialState);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clienteSearch, setClienteSearch] = useState("");
+  const [buscandoClientes, setBuscandoClientes] = useState(false);
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -148,7 +137,7 @@ export function OrdenForm({
   const [comboLoading, setComboLoading] = useState(false);
   const [puntosCliente, setPuntosCliente] = useState(0);
   const [serviciosSugeridos, setServiciosSugeridos] = useState<ServicioSugerido[]>([]);
-  
+
   const [productosRecordadosVehiculo, setProductosRecordadosVehiculo] =
     useState<ProductosRecordadosVehiculoState>({
       aceite: null,
@@ -252,6 +241,29 @@ export function OrdenForm({
   }, [esPreOrdenTecnico]);
 
   useEffect(() => {
+    const q = clienteSearch.trim();
+
+    if (q.length < 2) {
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        setBuscandoClientes(true);
+        const data = await buscarClientesForOrden(q);
+
+        setClientes(data);
+      } catch (err) {
+        console.error("Error buscando clientes:", err);
+      } finally {
+        setBuscandoClientes(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timeout);
+  }, [clienteSearch]);
+
+  useEffect(() => {
     const clienteIdQuery = searchParams.get("cliente_id") || "";
     const vehiculoIdQuery = searchParams.get("vehiculo_id") || "";
 
@@ -316,7 +328,7 @@ export function OrdenForm({
     }
 
     loadVehiculos();
-  }, [form.cliente_id, form.vehiculo_id, searchParams, vehiculoIdInicial]);
+  }, [form.cliente_id, searchParams, vehiculoIdInicial]);
 
   useEffect(() => {
     async function loadPuntos() {
@@ -880,27 +892,53 @@ export function OrdenForm({
   }, [form.vehiculo_id, vehiculos]);
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
+    <form onSubmit={handleSubmit} className="grid gap-5">
       <OrdenClienteVehiculoSection
         clienteSeleccionado={clienteSeleccionado}
         vehiculoSeleccionado={vehiculoSeleccionado}
       />
 
       <div
-        className={`grid gap-4 ${esPreOrdenTecnico ? "md:grid-cols-2" : "md:grid-cols-3"}`}
+        className={`grid gap-4 rounded-3xl border border-gray-200 bg-white p-4 shadow-sm ${esPreOrdenTecnico ? "md:grid-cols-2" : "md:grid-cols-3"
+          }`}
       >
         <div>
           <label className="mb-1 block text-sm font-medium">Cliente</label>
+          <input
+            type="text"
+            value={clienteSearch}
+            onChange={(e) => setClienteSearch(e.target.value)}
+            className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+            placeholder="Buscar por nombre, cédula o teléfono..."
+          />
+
+          {buscandoClientes ? (
+            <p className="mb-2 text-xs text-gray-400">Buscando clientes...</p>
+          ) : null}
           <select
             value={form.cliente_id}
-            onChange={(e) => updateField("cliente_id", e.target.value)}
+            onChange={(e) => {
+              const clienteId = e.target.value;
+
+              setForm((prev) => ({
+                ...prev,
+                cliente_id: clienteId,
+                vehiculo_id: "",
+                kilometraje: "",
+              }));
+
+              setVehiculos([]);
+            }}
             className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
             disabled={loadingData}
           >
             <option value="">Selecciona un cliente</option>
+
             {clientes.map((cliente) => (
               <option key={cliente.id} value={cliente.id}>
-                {cliente.nombres} {cliente.apellidos} - {cliente.telefono}
+                {`${cliente.nombres ?? ""} ${cliente.apellidos ?? ""}`.trim() || "Cliente sin nombre"}
+                {cliente.telefono ? ` - ${cliente.telefono}` : ""}
+                {cliente.cedula_ruc ? ` - ${cliente.cedula_ruc}` : ""}
               </option>
             ))}
           </select>
@@ -1275,32 +1313,43 @@ export function OrdenForm({
         )}
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">Notas</label>
+      <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
+        <label className="mb-2 block text-sm font-bold text-gray-700">Notas</label>
         <textarea
           value={form.notas}
           onChange={(e) => updateField("notas", e.target.value)}
-          className="min-h-25 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+          className="min-h-28 w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
           placeholder="Observaciones del servicio..."
         />
       </div>
 
       <OrdenMensajesSection error={error} success={success} />
 
-      <div>
-        <button
-          type="submit"
-          disabled={loading || loadingData}
-          className="rounded-xl border border-yellow-300 bg-yellow-500 px-4 py-2 text-white transition hover:opacity-90 disabled:opacity-60"
-        >
-          {loading
-            ? esPreOrdenTecnico
-              ? "Guardando pre-orden..."
-              : "Guardando orden..."
-            : esPreOrdenTecnico
-              ? "Crear pre-orden"
-              : "Guardar orden"}
-        </button>
+      <div className="sticky bottom-4 z-20 rounded-3xl border border-gray-200 bg-white/95 p-4 shadow-xl backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-gray-900">
+              {esPreOrdenTecnico ? "Crear pre-orden" : "Guardar orden"}
+            </p>
+            <p className="text-xs text-gray-500">
+              Se guardarán cliente, vehículo, items, descuentos y mantenimiento.
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || loadingData}
+            className="inline-flex items-center justify-center rounded-2xl border border-yellow-300 bg-yellow-500 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading
+              ? esPreOrdenTecnico
+                ? "Guardando pre-orden..."
+                : "Guardando orden..."
+              : esPreOrdenTecnico
+                ? "Crear pre-orden"
+                : "Guardar orden"}
+          </button>
+        </div>
       </div>
     </form>
   );

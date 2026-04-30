@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Banknote, CreditCard, Landmark, Smartphone, X } from "lucide-react";
 import { registrarPagoOrden } from "./actions";
 import { calcularEstadoPagoOrden } from "@/lib/core/ordenes/reglas";
-
 
 type MetodoPago = "efectivo" | "transferencia" | "deuna" | "tarjeta";
 
@@ -22,6 +22,17 @@ type CobrarModalProps = {
   onClose: (result?: CobrarModalClosePayload) => void;
 };
 
+const metodos: {
+  value: MetodoPago;
+  label: string;
+  icon: React.ReactNode;
+}[] = [
+  { value: "efectivo", label: "Efectivo", icon: <Banknote className="h-4 w-4" /> },
+  { value: "transferencia", label: "Transferencia", icon: <Landmark className="h-4 w-4" /> },
+  { value: "deuna", label: "Deuna", icon: <Smartphone className="h-4 w-4" /> },
+  { value: "tarjeta", label: "Tarjeta", icon: <CreditCard className="h-4 w-4" /> },
+];
+
 export function CobrarModal({
   open,
   onClose,
@@ -29,9 +40,10 @@ export function CobrarModal({
   total,
   totalPagado = 0,
 }: CobrarModalProps) {
-  const saldoPendienteInicial = useMemo(() => {
-    return Math.max(0, Number(total) - Number(totalPagado));
-  }, [total, totalPagado]);
+  const saldoPendienteInicial = useMemo(
+    () => Math.max(0, Number(total) - Number(totalPagado)),
+    [total, totalPagado]
+  );
 
   const [monto, setMonto] = useState<number>(saldoPendienteInicial);
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
@@ -62,64 +74,74 @@ export function CobrarModal({
         total_pagado: response.total_pagado,
         saldo_restante: response.saldo_restante,
       });
-
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "No se pudo registrar el pago";
-      alert(message);
+      alert(error instanceof Error ? error.message : "No se pudo registrar el pago");
     } finally {
       setLoading(false);
     }
   }
 
-  function handleMetodoChange(value: string) {
-    if (
-      value === "efectivo" ||
-      value === "transferencia" ||
-      value === "deuna" ||
-      value === "tarjeta"
-    ) {
-      setMetodo(value);
-    }
-  }
-
   const montoValido =
-    Number.isFinite(monto) &&
-    monto > 0 &&
-    monto <= saldoPendienteInicial;
+    Number.isFinite(monto) && monto > 0 && monto <= saldoPendienteInicial;
+
   const estadoPagoPreview = calcularEstadoPagoOrden(
     Number(total),
     Number(totalPagado) + Number(monto || 0)
   );
 
   const ordenQuedaraEntregada = estadoPagoPreview === "pagada";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold">Cobrar orden</h2>
-
-        <div className="mt-4 rounded-xl bg-gray-50 p-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span>Total orden</span>
-            <span className="font-medium">${Number(total).toFixed(2)}</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-gray-200 p-5">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Cobrar orden</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Registra el pago o abono de esta orden.
+            </p>
           </div>
 
-          <div className="mt-1 flex items-center justify-between">
-            <span>Total pagado</span>
-            <span className="font-medium">${Number(totalPagado).toFixed(2)}</span>
-          </div>
-
-          <div className="mt-1 flex items-center justify-between">
-            <span>Saldo pendiente</span>
-            <span className="font-semibold">
-              ${Number(saldoPendienteInicial).toFixed(2)}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={() => onClose()}
+            className="rounded-2xl border border-gray-200 p-2 text-gray-500 transition hover:bg-gray-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="grid gap-4 p-5">
+          <div className="grid gap-3 rounded-3xl border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Total orden</span>
+              <span className="font-bold text-gray-900">
+                ${Number(total).toFixed(2)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Total pagado</span>
+              <span className="font-bold text-gray-900">
+                ${Number(totalPagado).toFixed(2)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl bg-gray-900 px-4 py-3">
+              <span className="text-sm font-semibold text-white">
+                Saldo pendiente
+              </span>
+              <span className="text-xl font-extrabold text-white">
+                ${Number(saldoPendienteInicial).toFixed(2)}
+              </span>
+            </div>
+          </div>
+
           <div>
-            <label className="text-sm">Monto a cobrar</label>
+            <label className="mb-2 block text-sm font-semibold text-gray-700">
+              Monto a cobrar
+            </label>
+
             <input
               type="number"
               min={0}
@@ -127,48 +149,66 @@ export function CobrarModal({
               step="0.01"
               value={monto}
               onChange={(e) => setMonto(Number(e.target.value))}
-              className="w-full rounded-xl border px-3 py-2"
+              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-lg font-bold text-gray-900 outline-none transition focus:border-gray-400 focus:bg-white"
             />
+
             {!montoValido && (
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-2 text-xs font-medium text-red-600">
                 El monto debe ser mayor a 0 y no superar el saldo pendiente.
               </p>
             )}
           </div>
 
           <div>
-            <label className="text-sm">Método de pago</label>
-            <select
-              value={metodo}
-              onChange={(e) => handleMetodoChange(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
-            >
-              <option value="efectivo">Efectivo</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="deuna">Deuna</option>
-              <option value="tarjeta">Tarjeta</option>
-            </select>
+            <p className="mb-2 text-sm font-semibold text-gray-700">
+              Método de pago
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {metodos.map((item) => {
+                const active = metodo === item.value;
+
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setMetodo(item.value)}
+                    className={`flex items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold transition ${
+                      active
+                        ? "border-gray-900 bg-gray-900 text-white shadow-md"
+                        : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
             {ordenQuedaraEntregada
               ? "Si cubre todo el saldo pendiente, la orden pasará a entregada."
               : "Se registrará como abono y la orden seguirá completada."}
           </div>
         </div>
 
-        <div className="mt-6 flex gap-2">
+        <div className="grid grid-cols-2 gap-3 border-t border-gray-200 bg-gray-50 p-5">
           <button
+            type="button"
             onClick={() => onClose()}
-            className="flex-1 rounded-xl border px-4 py-2"
+            disabled={loading}
+            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 disabled:opacity-60"
           >
             Cancelar
           </button>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={loading || !montoValido}
-            className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-white disabled:opacity-60"
+            className="rounded-2xl bg-green-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading
               ? "Procesando..."

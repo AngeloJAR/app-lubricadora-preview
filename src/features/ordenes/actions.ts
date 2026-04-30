@@ -974,8 +974,9 @@ export async function createTareasSugeridasOrden(ordenId: string) {
   const { data: tecnicosAsignadosData, error: tecnicosAsignadosError } =
     await supabase
       .from("ordenes_tecnicos")
-      .select("tecnico_id, es_principal")
+      .select("tecnico_id, es_principal, created_at")
       .eq("orden_id", ordenId)
+      .order("es_principal", { ascending: false })
       .order("created_at", { ascending: true });
 
   if (tecnicosAsignadosError) {
@@ -989,19 +990,23 @@ export async function createTareasSugeridasOrden(ordenId: string) {
   const tecnicosAsignados = (tecnicosAsignadosData ?? []) as {
     tecnico_id: string;
     es_principal: boolean;
+    created_at?: string;
   }[];
 
   if (tecnicosAsignados.length === 0) {
     throw new Error("La orden no tiene técnicos asignados");
   }
 
-  const tecnicoIds = tecnicosAsignados.map((item) => item.tecnico_id);
+  const tecnicoIds = Array.from(
+    new Set(tecnicosAsignados.map((item) => item.tecnico_id))
+  );
 
   const { data: itemsData, error: itemsError } = await supabase
     .from("orden_items")
     .select("id, tipo_item, nombre_item")
     .eq("orden_id", ordenId)
-    .eq("tipo_item", "servicio");
+    .eq("tipo_item", "servicio")
+    .order("created_at", { ascending: true });
 
   if (itemsError) {
     console.error("Error obteniendo items de la orden:", itemsError.message);
@@ -1024,7 +1029,10 @@ export async function createTareasSugeridasOrden(ordenId: string) {
     .eq("orden_id", ordenId);
 
   if (tareasActualesError) {
-    console.error("Error obteniendo tareas actuales:", tareasActualesError.message);
+    console.error(
+      "Error obteniendo tareas actuales:",
+      tareasActualesError.message
+    );
     throw new Error("No se pudieron validar las tareas existentes");
   }
 
@@ -1032,24 +1040,23 @@ export async function createTareasSugeridasOrden(ordenId: string) {
     ((tareasActualesData ?? []) as {
       tipo_tarea: string;
       descripcion: string | null;
-    }[]).map(
-      (tarea) => `${tarea.tipo_tarea}::${(tarea.descripcion ?? "").trim()}`
-    )
+    }[]).map((tarea) => {
+      return `${tarea.tipo_tarea}::${(tarea.descripcion ?? "").trim().toLowerCase()}`;
+    })
   );
 
-  const tareasBase = items.flatMap((item) =>
-    getTareasSugeridasPorServicio(item.nombre_item).map((tipo) => ({
+  const tareasBase = items.flatMap((item) => {
+    const descripcion = item.nombre_item.trim();
+
+    return getTareasSugeridasPorServicio(descripcion).map((tipo) => ({
       tipo_tarea: tipo,
-      descripcion: item.nombre_item.trim(),
-    }))
-  );
-
-  if (tareasBase.length === 0) {
-    return [];
-  }
+      descripcion,
+    }));
+  });
 
   const tareasUnicas = tareasBase.filter((tarea) => {
-    const key = `${tarea.tipo_tarea}::${tarea.descripcion}`;
+    const key = `${tarea.tipo_tarea}::${tarea.descripcion.trim().toLowerCase()}`;
+
     if (existentes.has(key)) {
       return false;
     }
@@ -1062,26 +1069,13 @@ export async function createTareasSugeridasOrden(ordenId: string) {
     return [];
   }
 
-  const rows: {
-    orden_id: string;
-    tecnico_id: string;
-    tipo_tarea: string;
-    descripcion: string;
-    estado: "pendiente";
-  }[] = [];
-
-  for (let index = 0; index < tareasUnicas.length; index++) {
-    const tarea = tareasUnicas[index];
-    const tecnicoId = tecnicoIds[index % tecnicoIds.length];
-
-    rows.push({
-      orden_id: ordenId,
-      tecnico_id: tecnicoId,
-      tipo_tarea: tarea.tipo_tarea,
-      descripcion: tarea.descripcion,
-      estado: "pendiente",
-    });
-  }
+  const rows = tareasUnicas.map((tarea, index) => ({
+    orden_id: ordenId,
+    tecnico_id: tecnicoIds[index % tecnicoIds.length],
+    tipo_tarea: tarea.tipo_tarea,
+    descripcion: tarea.descripcion,
+    estado: "pendiente" as const,
+  }));
 
   const { data, error } = await supabase
     .from("ordenes_tareas_tecnicos")
@@ -1097,7 +1091,6 @@ export async function createTareasSugeridasOrden(ordenId: string) {
 
   return data ?? [];
 }
-
 
 export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
   const supabase = await createClient();
@@ -1152,8 +1145,9 @@ export async function getOrdenes(): Promise<OrdenConRelaciones[]> {
       )
     )
   `)
+    .or("estado.neq.entregada,estado_pago.neq.pagada")
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(200);
 
   if (error) {
     console.error("Error obteniendo órdenes:", error.message);
@@ -1972,14 +1966,64 @@ export async function getClientesForOrden(): Promise<Cliente[]> {
 
   const { data, error } = await supabase
     .from("clientes")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select(`
+      id,
+      nombres,
+      apellidos,
+      cedula_ruc,
+      telefono,
+      whatsapp,
+      email,
+      notas,
+      acepta_promociones,
+      created_at,
+      updated_at
+    `)
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   if (error) {
     console.error("Error al obtener clientes para orden:", error.message);
     throw new Error("No se pudieron cargar los clientes");
   }
 
+  return (data ?? []) as Cliente[];
+}
+
+export async function buscarClientesForOrden(query: string): Promise<Cliente[]> {
+  const supabase = await createClient();
+
+  const q = query.trim();
+
+  if (q.length < 2) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("clientes")
+    .select(`
+      id,
+      nombres,
+      apellidos,
+      cedula_ruc,
+      telefono,
+      whatsapp,
+      email,
+      notas,
+      acepta_promociones,
+      created_at,
+      updated_at
+    `)
+    .or(
+      `nombres.ilike.%${q}%,apellidos.ilike.%${q}%,cedula_ruc.ilike.%${q}%,telefono.ilike.%${q}%,whatsapp.ilike.%${q}%`
+    )
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    console.error("Error buscando clientes para orden:", error.message);
+    throw new Error("No se pudieron buscar los clientes");
+  }
   return (data ?? []) as Cliente[];
 }
 

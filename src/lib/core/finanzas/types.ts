@@ -26,7 +26,7 @@ export type NaturalezaMovimiento =
   | "retiro_dueno"
   | "transferencia_interna";
 
-export type EstadoPago = "pendiente" | "parcial" | "pagado";
+export type EstadoPago = "pendiente" | "abonada" | "pagada";
 
 export type TipoMovimientoDinero = "ingreso" | "egreso";
 

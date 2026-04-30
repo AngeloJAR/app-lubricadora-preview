@@ -1,9 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { createProducto } from "./actions";
+import {
+  Boxes,
+  CarFront,
+  CheckCircle2,
+  CircleDollarSign,
+  FileText,
+  Loader2,
+  PackagePlus,
+  Plus,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import type { ProductoFormData } from "@/types";
 import { getConfiguracionTaller } from "@/features/configuracion/actions";
+import {
+  createAplicacionFiltroAire,
+  createProducto,
+  getCategoriasProductos,
+} from "./actions";
 
 const IVA = 0.15;
 
@@ -29,10 +45,14 @@ type ProductoFormProps = {
   onCreated?: () => Promise<void> | void;
 };
 
+type AplicacionFiltro = {
+  vehiculo_marca: string;
+  vehiculo_modelo: string;
+  vehiculo_motor: string;
+};
+
 function toNumber(value: string | number | null | undefined) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
 
   if (typeof value === "string") {
     const normalized = value.trim().replace(",", ".");
@@ -45,12 +65,37 @@ function toNumber(value: string | number | null | undefined) {
   return 0;
 }
 
+function money(value: number) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function ordenarCategorias(categorias: string[]) {
+  return [...categorias].sort((a, b) => {
+    const aOtros = a.toLowerCase().trim() === "otros";
+    const bOtros = b.toLowerCase().trim() === "otros";
+
+    if (aOtros) return 1;
+    if (bOtros) return -1;
+
+    return a.localeCompare(b, "es");
+  });
+}
+
 export function ProductoForm({ onCreated }: ProductoFormProps) {
   const [form, setForm] = useState<ProductoFormData>(initialState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [margenGanancia, setMargenGanancia] = useState(0.45);
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [aplicaciones, setAplicaciones] = useState<AplicacionFiltro[]>([]);
+
+  const esFiltro = form.categoria.toLowerCase().includes("filtro");
+
+  const categoriasOrdenadas = useMemo(
+    () => ordenarCategorias(categorias),
+    [categorias]
+  );
 
   useEffect(() => {
     async function loadMargen() {
@@ -64,6 +109,19 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
     }
 
     loadMargen();
+  }, []);
+
+  useEffect(() => {
+    async function loadCategorias() {
+      try {
+        const data = await getCategoriasProductos();
+        setCategorias(data);
+      } catch {
+        setCategorias([]);
+      }
+    }
+
+    loadCategorias();
   }, []);
 
   function updateField<K extends keyof ProductoFormData>(
@@ -88,6 +146,7 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
         precioVentaConIVA: 0,
         gananciaSinIVA: 0,
         descuentoExtras: 0,
+        margenReal: 0,
       };
     }
 
@@ -112,6 +171,8 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
     const precioVentaSinIVA = Math.ceil(costoReal * (1 + margenGanancia));
     const precioVentaConIVA = Math.ceil(precioVentaSinIVA * (1 + IVA));
     const gananciaSinIVA = precioVentaSinIVA - costoReal;
+    const margenReal =
+      precioVentaSinIVA > 0 ? (gananciaSinIVA / precioVentaSinIVA) * 100 : 0;
 
     return {
       precioCompraConIVA: Number(precioCompraConIVA.toFixed(2)),
@@ -121,6 +182,7 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
       precioVentaConIVA: Number(precioVentaConIVA.toFixed(2)),
       gananciaSinIVA: Number(gananciaSinIVA.toFixed(2)),
       descuentoExtras: Number(descuentoExtras.toFixed(2)),
+      margenReal: Number(margenReal.toFixed(1)),
     };
   }, [
     form.precio_compra,
@@ -133,6 +195,7 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
     form.costo_tarjeta,
     margenGanancia,
   ]);
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -176,7 +239,7 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
     try {
       setLoading(true);
 
-      await createProducto({
+      const productoCreado = await createProducto({
         ...form,
         precio_venta: String(resumenPrecio.precioVentaSinIVA),
         costo_filtro: form.incluye_filtro ? form.costo_filtro : "0",
@@ -184,12 +247,38 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
         costo_tarjeta: form.incluye_tarjeta ? form.costo_tarjeta : "0",
       });
 
+      const aplicacionesFiltradas = Array.from(
+        new Map(
+          aplicaciones
+            .filter(
+              (app) => app.vehiculo_marca.trim() && app.vehiculo_modelo.trim()
+            )
+            .map((app) => [
+              `${app.vehiculo_marca.toLowerCase().trim()}-${app.vehiculo_modelo
+                .toLowerCase()
+                .trim()}-${app.vehiculo_motor.toLowerCase().trim()}`,
+              app,
+            ])
+        ).values()
+      );
+
+      if (esFiltro && aplicacionesFiltradas.length > 0) {
+        for (const app of aplicacionesFiltradas) {
+          await createAplicacionFiltroAire({
+            producto_id: productoCreado.id,
+            vehiculo_marca: app.vehiculo_marca,
+            vehiculo_modelo: app.vehiculo_modelo,
+            vehiculo_motor: app.vehiculo_motor,
+            codigo_referencia: form.nombre,
+          });
+        }
+      }
+
       setSuccess("Producto registrado correctamente en el catálogo.");
       setForm(initialState);
+      setAplicaciones([]);
 
-      if (onCreated) {
-        await onCreated();
-      }
+      if (onCreated) await onCreated();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Ocurrió un error inesperado.";
@@ -206,284 +295,428 @@ export function ProductoForm({ onCreated }: ProductoFormProps) {
     }
   }
 
+  function agregarAplicacion() {
+    setAplicaciones((prev) => [
+      ...prev,
+      {
+        vehiculo_marca: "",
+        vehiculo_modelo: "",
+        vehiculo_motor: "",
+      },
+    ]);
+  }
+
+  function actualizarAplicacion(
+    index: number,
+    campo: keyof AplicacionFiltro,
+    valor: string
+  ) {
+    setAplicaciones((prev) => {
+      const copia = [...prev];
+      copia[index] = { ...copia[index], [campo]: valor };
+      return copia;
+    });
+  }
+
+  function eliminarAplicacion(index: number) {
+    setAplicaciones((prev) => prev.filter((_, i) => i !== index));
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium">Nombre</label>
-          <input
-            value={form.nombre}
-            onChange={(e) => updateField("nombre", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="Aceite Soil 5W30"
-          />
+    <form onSubmit={handleSubmit} className="grid gap-5">
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white p-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-yellow-100 p-3 text-yellow-700">
+              <PackagePlus className="h-5 w-5" />
+            </div>
+
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Registrar producto
+              </h2>
+              <p className="text-sm text-slate-500">
+                Agrega el producto al catálogo, calcula su precio sugerido y
+                registra aplicaciones si es filtro.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">Categoría</label>
-          <input
-            value={form.categoria}
-            onChange={(e) => updateField("categoria", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="Aceites"
-          />
-        </div>
-      </div>
+        <div className="grid gap-5 p-5">
+          <div className="grid gap-4 lg:grid-cols-4">
+            <div className="lg:col-span-2">
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Nombre del producto
+              </label>
+              <input
+                value={form.nombre}
+                onChange={(e) => updateField("nombre", e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                placeholder="Ej: Sakura A1433 / Kendall 20W50"
+              />
+            </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium">Marca</label>
-          <input
-            value={form.marca}
-            onChange={(e) => updateField("marca", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="Kendall / Soil / Castrol"
-          />
-        </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Categoría
+              </label>
+              <select
+                value={form.categoria}
+                onChange={(e) => updateField("categoria", e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+              >
+                <option value="">Selecciona una categoría</option>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">Stock</label>
-          <input
-            type="number"
-            min="0"
-            value={form.stock}
-            onChange={(e) => updateField("stock", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="10"
-          />
-        </div>
-      </div>
+                {categoriasOrdenadas.map((categoria) => (
+                  <option key={categoria} value={categoria}>
+                    {categoria}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium">
-            Precio compra facturado
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.precio_compra}
-            onChange={(e) => updateField("precio_compra", e.target.value)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
-            placeholder="Ej: 20.24"
-          />
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Marca
+              </label>
+              <input
+                value={form.marca}
+                onChange={(e) => updateField("marca", e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                placeholder="Kendall / Sakura"
+              />
+            </div>
+          </div>
 
-          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+          <div className="grid gap-4 lg:grid-cols-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Stock inicial
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={form.stock}
+                onChange={(e) => updateField("stock", e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                placeholder="10"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Precio compra facturado
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.precio_compra}
+                onChange={(e) => updateField("precio_compra", e.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                placeholder="Ej: 20.24"
+              />
+            </div>
+
+            <div className="lg:col-span-2">
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Precio venta sugerido
+              </label>
+              <div className="flex h-11 items-center justify-between rounded-2xl border border-yellow-200 bg-yellow-50 px-4">
+                <span className="text-sm text-yellow-800">
+                  Sin IVA para guardar en producto
+                </span>
+                <span className="text-lg font-black text-yellow-700">
+                  {money(resumenPrecio.precioVentaSinIVA)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
             <input
               type="checkbox"
               checked={form.precio_compra_incluye_iva}
               onChange={(e) =>
                 updateField("precio_compra_incluye_iva", e.target.checked)
               }
+              className="h-4 w-4 accent-yellow-500"
             />
-            El precio ingresado ya incluye IVA
+            El precio de compra ingresado ya incluye IVA
           </label>
-
-          <p className="mt-1 text-xs text-gray-500">
-            Este es el valor tal como viene en la factura del proveedor.
-          </p>
         </div>
+      </section>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">
-            Precio venta sugerido
-          </label>
-          <input
-            type="text"
-            value={
-              resumenPrecio.precioVentaSinIVA > 0
-                ? `$${resumenPrecio.precioVentaSinIVA.toFixed(2)}`
-                : "-"
-            }
-            readOnly
-            className="w-full rounded-xl border border-gray-200 bg-gray-100 px-3 py-2 text-gray-700 outline-none"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Calculado con el margen configurado en tu taller (
-            {(margenGanancia * 100).toFixed(0)}%).
-          </p>
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+            <CircleDollarSign className="h-5 w-5" />
+          </div>
+
+          <div>
+            <h3 className="font-bold text-slate-900">Costos incluidos</h3>
+            <p className="text-sm text-slate-500">
+              Estos valores se descuentan del costo real cuando el proveedor ya
+              los incluye en la compra.
+            </p>
+          </div>
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-gray-200 p-4">
-        <p className="mb-3 text-sm font-semibold text-gray-900">
-          Extras incluidos por el proveedor
-        </p>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-gray-200 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-              <input
-                type="checkbox"
-                checked={form.incluye_filtro}
-                onChange={(e) => updateField("incluye_filtro", e.target.checked)}
-              />
-              Incluye filtro
-            </label>
+          {[
+            {
+              label: "Incluye filtro",
+              checked: form.incluye_filtro,
+              checkKey: "incluye_filtro" as const,
+              value: form.costo_filtro,
+              valueKey: "costo_filtro" as const,
+              placeholder: "Costo del filtro",
+            },
+            {
+              label: "Incluye ambiental",
+              checked: form.incluye_ambiental,
+              checkKey: "incluye_ambiental" as const,
+              value: form.costo_ambiental,
+              valueKey: "costo_ambiental" as const,
+              placeholder: "Costo ambiental",
+            },
+            {
+              label: "Incluye tarjeta kilometraje",
+              checked: form.incluye_tarjeta,
+              checkKey: "incluye_tarjeta" as const,
+              value: form.costo_tarjeta,
+              valueKey: "costo_tarjeta" as const,
+              placeholder: "Costo tarjeta",
+            },
+          ].map((item) => (
+            <div
+              key={item.checkKey}
+              className={`rounded-2xl border p-4 transition ${
+                item.checked
+                  ? "border-yellow-300 bg-yellow-50"
+                  : "border-slate-200 bg-slate-50"
+              }`}
+            >
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={item.checked}
+                  onChange={(e) => updateField(item.checkKey, e.target.checked)}
+                  className="h-4 w-4 accent-yellow-500"
+                />
+                {item.label}
+              </label>
 
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.costo_filtro}
-              onChange={(e) => updateField("costo_filtro", e.target.value)}
-              disabled={!form.incluye_filtro}
-              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none disabled:cursor-not-allowed disabled:bg-gray-100 focus:border-black"
-              placeholder="Costo del filtro"
-            />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={item.value}
+                onChange={(e) => updateField(item.valueKey, e.target.value)}
+                disabled={!item.checked}
+                className="mt-3 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
+                placeholder={item.placeholder}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700">
+            <Boxes className="h-5 w-5" />
           </div>
 
-          <div className="rounded-xl border border-gray-200 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-              <input
-                type="checkbox"
-                checked={form.incluye_ambiental}
-                onChange={(e) =>
-                  updateField("incluye_ambiental", e.target.checked)
-                }
-              />
-              Incluye ambiental
-            </label>
-
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.costo_ambiental}
-              onChange={(e) => updateField("costo_ambiental", e.target.value)}
-              disabled={!form.incluye_ambiental}
-              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none disabled:cursor-not-allowed disabled:bg-gray-100 focus:border-black"
-              placeholder="Costo del ambiental"
-            />
-          </div>
-
-          <div className="rounded-xl border border-gray-200 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-              <input
-                type="checkbox"
-                checked={form.incluye_tarjeta}
-                onChange={(e) => updateField("incluye_tarjeta", e.target.checked)}
-              />
-              Incluye tarjeta kilometraje
-            </label>
-
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.costo_tarjeta}
-              onChange={(e) => updateField("costo_tarjeta", e.target.value)}
-              disabled={!form.incluye_tarjeta}
-              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none disabled:cursor-not-allowed disabled:bg-gray-100 focus:border-black"
-              placeholder="Costo de la tarjeta"
-            />
+          <div>
+            <h3 className="font-bold text-slate-900">Resumen de precio</h3>
+            <p className="text-sm text-slate-500">
+              Margen configurado: {(margenGanancia * 100).toFixed(0)}%.
+            </p>
           </div>
         </div>
-      </div>
 
-      <div className="grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Compra con IVA
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.precioCompraConIVA.toFixed(2)}
-          </p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+          {[
+            ["Compra con IVA", money(resumenPrecio.precioCompraConIVA)],
+            ["Compra sin IVA", money(resumenPrecio.precioCompraSinIVA)],
+            ["Extras", money(resumenPrecio.descuentoExtras)],
+            ["Costo real", money(resumenPrecio.costoReal)],
+            ["Venta sin IVA", money(resumenPrecio.precioVentaSinIVA)],
+            ["Venta con IVA", money(resumenPrecio.precioVentaConIVA)],
+            ["Ganancia", money(resumenPrecio.gananciaSinIVA)],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+            >
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                {label}
+              </p>
+              <p className="mt-1 text-lg font-black text-slate-900">{value}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {esFiltro ? (
+        <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-blue-600 p-3 text-white">
+                <CarFront className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h3 className="font-bold text-blue-950">
+                  Aplicaciones del filtro
+                </h3>
+                <p className="text-sm text-blue-700">
+                  Agrega los vehículos compatibles con este filtro.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={agregarAplicacion}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" />
+              Agregar aplicación
+            </button>
+          </div>
+
+          {aplicaciones.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-blue-300 bg-white/70 p-5 text-center text-sm text-blue-700">
+              Todavía no agregas aplicaciones. Puedes registrar el producto sin
+              aplicaciones o agregarlas aquí.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {aplicaciones.map((app, index) => (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-2xl border border-blue-200 bg-white p-4 md:grid-cols-[1fr_1fr_1fr_auto]"
+                >
+                  <input
+                    value={app.vehiculo_marca}
+                    onChange={(e) =>
+                      actualizarAplicacion(
+                        index,
+                        "vehiculo_marca",
+                        e.target.value
+                      )
+                    }
+                    placeholder="Marca del vehículo"
+                    className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+
+                  <input
+                    value={app.vehiculo_modelo}
+                    onChange={(e) =>
+                      actualizarAplicacion(
+                        index,
+                        "vehiculo_modelo",
+                        e.target.value
+                      )
+                    }
+                    placeholder="Modelo"
+                    className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+
+                  <input
+                    value={app.vehiculo_motor}
+                    onChange={(e) =>
+                      actualizarAplicacion(
+                        index,
+                        "vehiculo_motor",
+                        e.target.value
+                      )
+                    }
+                    placeholder="Motor / año"
+                    className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => eliminarAplicacion(index)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-600 transition hover:bg-red-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+            <FileText className="h-5 w-5" />
+          </div>
+
+          <div>
+            <h3 className="font-bold text-slate-900">Notas y estado</h3>
+            <p className="text-sm text-slate-500">
+              Información adicional para identificar mejor el producto.
+            </p>
+          </div>
         </div>
 
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Compra sin IVA
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.precioCompraSinIVA.toFixed(2)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Venta con IVA
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.precioVentaConIVA.toFixed(2)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Descuento extras
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.descuentoExtras.toFixed(2)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Costo real
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.costoReal.toFixed(2)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Ganancia estimada
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.gananciaSinIVA.toFixed(2)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">
-            Venta sugerida
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
-            ${resumenPrecio.precioVentaSinIVA.toFixed(2)}
-          </p>
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-sm font-medium">Notas</label>
         <textarea
           value={form.notas}
           onChange={(e) => updateField("notas", e.target.value)}
-          className="min-h-24 w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-black"
+          className="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100"
           placeholder="Observaciones del producto..."
         />
-      </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={form.activo}
-          onChange={(e) => updateField("activo", e.target.checked)}
-        />
-        Producto activo
-      </label>
+        <label className="mt-4 flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
+          <input
+            type="checkbox"
+            checked={form.activo}
+            onChange={(e) => updateField("activo", e.target.checked)}
+            className="h-4 w-4 accent-yellow-500"
+          />
+          Producto activo
+        </label>
+      </section>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           {success}
         </div>
       ) : null}
 
-      <div>
+      <div className="sticky bottom-4 z-10 flex justify-end">
         <button
           type="submit"
           disabled={loading}
-          className="rounded-xl border border-yellow-300 bg-yellow-500 px-4 py-2 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-w-52 items-center justify-center gap-2 rounded-2xl bg-yellow-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-yellow-500/20 transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {loading ? "Guardando..." : "Registrar producto"}
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Guardando...
+            </>
+          ) : (
+            <>
+              <PackagePlus className="h-4 w-4" />
+              Registrar producto
+            </>
+          )}
         </button>
       </div>
     </form>

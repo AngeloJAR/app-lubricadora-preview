@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { CarFront, CheckCircle2, FilePlus2, Phone, UserRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ClienteCanjePuntosCard } from "./cliente-canje-puntos-card";
 import { ClienteFidelizacionCard } from "./cliente-fidelizacion-card";
@@ -14,150 +17,125 @@ type ClienteDetalleViewProps = {
   movimientosPuntos: ClientePuntosMovimiento[];
 };
 
+function InfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-900">
+        {value || "-"}
+      </p>
+    </div>
+  );
+}
+
 export function ClienteDetalleView({
   cliente,
   resumenFidelizacion,
   movimientosPuntos,
 }: ClienteDetalleViewProps) {
+  const clienteFrecuente = (resumenFidelizacion.puntosGanados ?? 0) > 50;
+
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-5">
       <div className="flex justify-end">
-        <a
-          href={`/ordenes/nueva?cliente_id=${cliente.id}`}
-          className="rounded-xl bg-yellow-500 text-white px-4 py-2 text-sm"
-        >
-          Crear orden para este cliente
-        </a>
+        <Link href={`/ordenes/nueva?cliente_id=${cliente.id}`}>
+          <Button>
+            <FilePlus2 className="h-4 w-4" />
+            Crear orden para este cliente
+          </Button>
+        </Link>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
+
+      <div className="grid gap-4">
         <ClienteFidelizacionCard resumen={resumenFidelizacion} />
-
-        <Card title="Estado del cliente">
-          <div className="grid gap-2">
-            <p className="text-sm text-gray-500">Puntos disponibles</p>
-            <p className="text-2xl font-bold text-green-600">
-              {resumenFidelizacion.puntosDisponibles}
-            </p>
-
-            <p className="text-sm text-gray-500">Total acumulados</p>
-            <p className="font-medium">
-              {resumenFidelizacion.puntosGanados ?? 0}            </p>
-
-            <p className="text-sm text-gray-500">Total canjeados</p>
-            <p className="font-medium">
-              {resumenFidelizacion.puntosCanjeados}
-            </p>
-          </div>
-        </Card>
       </div>
 
       <ClienteCanjePuntosCard
         clienteId={cliente.id}
         puntosDisponibles={resumenFidelizacion.puntosDisponibles}
       />
+
       {resumenFidelizacion.puntosDisponibles >= 20 ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+          <CheckCircle2 className="h-4 w-4" />
           Este cliente ya puede canjear beneficios. Ofrécele una promoción en la siguiente orden.
         </div>
       ) : null}
 
       <Card
         title="Información del cliente"
-        description={
-          (resumenFidelizacion.puntosGanados ?? 0) > 50 ? "Cliente frecuente / valioso"
-            : "Cliente en crecimiento"
-        }
+        description={clienteFrecuente ? "Cliente frecuente / valioso" : "Cliente en crecimiento"}
       >
         <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <p className="text-sm text-gray-500">Nombre</p>
-            <p className="font-medium">
-              {cliente.nombres} {cliente.apellidos}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Teléfono</p>
-            <p className="font-medium">{cliente.telefono}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">WhatsApp</p>
-            <p className="font-medium">{cliente.whatsapp || "-"}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Correo</p>
-            <p className="font-medium">{cliente.email || "-"}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Cédula / RUC</p>
-            <p className="font-medium">{cliente.cedula_ruc || "-"}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Promociones</p>
-            <p className="font-medium">
-              {cliente.acepta_promociones ? "Sí" : "No"}
-            </p>
-          </div>
+          <InfoItem label="Nombre" value={`${cliente.nombres} ${cliente.apellidos}`} />
+          <InfoItem label="Teléfono" value={cliente.telefono} />
+          <InfoItem label="WhatsApp" value={cliente.whatsapp} />
+          <InfoItem label="Correo" value={cliente.email} />
+          <InfoItem label="Cédula / RUC" value={cliente.cedula_ruc} />
+          <InfoItem label="Promociones" value={cliente.acepta_promociones ? "Sí" : "No"} />
         </div>
 
-        <div className="mt-4">
-          <p className="text-sm text-gray-500">Notas</p>
-          <p className="font-medium">{cliente.notas || "-"}</p>
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Notas
+          </p>
+          <p className="mt-1 text-sm font-medium text-slate-900">
+            {cliente.notas || "-"}
+          </p>
         </div>
       </Card>
 
       <ClientePuntosMovimientosCard movimientos={movimientosPuntos} />
 
-      <Card title="Vehículos del cliente">
+      <Card title="Vehículos del cliente" description="Vehículos registrados para este cliente.">
         {cliente.vehiculos.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 p-6 text-center text-gray-500">
-            Este cliente no tiene vehículos registrados.
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-white text-slate-400 shadow-sm">
+              <CarFront className="h-6 w-6" />
+            </div>
+            <p className="mt-3 text-sm font-medium text-slate-500">
+              Este cliente no tiene vehículos registrados.
+            </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-gray-200">
-            <table className="min-w-full bg-white">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-sm text-gray-600">
-                  <th className="px-4 py-3">Placa</th>
-                  <th className="px-4 py-3">Marca</th>
-                  <th className="px-4 py-3">Modelo</th>
-                  <th className="px-4 py-3">Año</th>
-                  <th className="px-4 py-3">Kilometraje</th>
-                  <th className="px-4 py-3">Transmisión</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cliente.vehiculos.map((vehiculo) => (
-                  <tr
-                    key={vehiculo.id}
-                    className="border-t border-gray-200 text-sm"
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      {vehiculo.placa}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {vehiculo.marca}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {vehiculo.modelo}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {vehiculo.anio ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {vehiculo.kilometraje_actual ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {vehiculo.transmision ?? "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-3">
+            {cliente.vehiculos.map((vehiculo) => (
+              <article
+                key={vehiculo.id}
+                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-yellow-100 text-yellow-700">
+                      <CarFront className="h-5 w-5" />
+                    </div>
+
+                    <div>
+                      <p className="text-lg font-bold tracking-tight text-slate-950">
+                        {vehiculo.placa}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {vehiculo.marca} {vehiculo.modelo}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3 md:w-[520px]">
+                    <InfoItem label="Año" value={vehiculo.anio} />
+                    <InfoItem label="Km" value={vehiculo.kilometraje_actual} />
+                    <InfoItem label="Transmisión" value={vehiculo.transmision} />
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </Card>
